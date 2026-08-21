@@ -2352,23 +2352,21 @@ async function loadStoreAndGo() {
   render();
 }
 
-// A password-recovery link logs the user in via a one-time token in the URL
-// and fires this event — caught here (before boot()'s own getSession() call
-// resolves) so we route to the reset-password screen instead of dropping
-// them straight into the dashboard with no chance to set a new password.
-let handledRecovery = false;
-sb.auth.onAuthStateChange((event, session) => {
-  if (event === "PASSWORD_RECOVERY") {
-    handledRecovery = true;
-    state.session = session;
-    state.screen = "redefinirSenha";
-    render();
-  }
-});
+// A password-recovery link carries "type=recovery" in the URL (hash or
+// query, depending on the Supabase flow) — checked directly here instead of
+// waiting on the PASSWORD_RECOVERY auth event, which can arrive after
+// boot() has already moved on to loadStoreAndGo() and dropped the user
+// straight into the dashboard mid-typing, with no chance to set a password.
+const isRecoveryLink = /type=recovery/.test(window.location.hash) || /type=recovery/.test(window.location.search);
 
 async function boot() {
   const { data: { session } } = await sb.auth.getSession();
-  if (handledRecovery) return;
+  if (isRecoveryLink) {
+    state.session = session;
+    state.screen = "redefinirSenha";
+    render();
+    return;
+  }
   if (session) {
     state.session = session;
     await loadStoreAndGo();
