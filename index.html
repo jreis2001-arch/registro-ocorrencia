@@ -1489,6 +1489,8 @@ function screenFormDinamico() {
           <div class="charcount"><span id="charcount">${d.narrativeRaw.length}</span> caracteres</div>
         </div>
         ${!speechSupported() ? `<div class="speech-warn">Reconhecimento de voz não disponível neste navegador — use Chrome ou Edge, ou digite.</div>` : ``}
+        <button class="btn-text" id="btnMelhorarIA" style="align-self:flex-start; margin-top:2px;">Melhorar com IA</button>
+        <div id="aiSuggestionWrap"></div>
       </div>
       <button class="btn btn-primary" id="btnContinuar" style="margin-top:6px;">Continuar ${ICONS.arrowRight}</button>
     `;
@@ -1529,10 +1531,51 @@ function screenFormDinamico() {
     const ta = document.getElementById("descInput");
     const cc = document.getElementById("charcount");
     const btnMic = document.getElementById("btnMic");
+    const btnMelhorarIA = document.getElementById("btnMelhorarIA");
+    const aiWrap = document.getElementById("aiSuggestionWrap");
     ta.addEventListener("input", () => {
       d.narrativeRaw = ta.value;
       cc.textContent = ta.value.length;
     });
+
+    // Rewrites the raw narrative into clearer, professional wording via
+    // Gemini (called through an Edge Function so the API key never reaches
+    // the client) — but never swaps the text in without the reporter
+    // confirming it still says what actually happened.
+    btnMelhorarIA.onclick = async () => {
+      const texto = ta.value.trim();
+      if (texto.length < 5) { showToast("Escreva um pouco mais antes de pedir a melhoria."); return; }
+      aiWrap.innerHTML = "";
+      btnMelhorarIA.disabled = true;
+      btnMelhorarIA.textContent = "Melhorando…";
+      const { data, error } = await sb.functions.invoke("melhorar-relato", { body: { texto } });
+      btnMelhorarIA.disabled = false;
+      btnMelhorarIA.textContent = "Melhorar com IA";
+      if (error || !data || data.error || !data.melhorado) {
+        showToast("Não foi possível melhorar o texto agora. Tente novamente.");
+        return;
+      }
+      aiWrap.innerHTML = `
+        <div style="border:1.5px solid var(--border); border-radius:12px; padding:14px; background:var(--surface-alt); display:flex; flex-direction:column; gap:10px; margin-top:8px;">
+          <div style="font-size:12.5px; font-weight:600; color:var(--ink-soft);">A IA reescreveu assim — é isso que aconteceu?</div>
+          <div style="font-size:13.5px; color:var(--ink); white-space:pre-wrap;">${escapeHtml(data.melhorado)}</div>
+          <div style="display:flex; gap:10px;">
+            <button class="btn btn-primary" id="btnAiConfirmar" style="flex:1;">Sim, usar este texto</button>
+            <button class="btn-text" id="btnAiRecusar">Não, vou reescrever</button>
+          </div>
+        </div>
+      `;
+      document.getElementById("btnAiConfirmar").onclick = () => {
+        d.narrativeRaw = data.melhorado;
+        ta.value = data.melhorado;
+        cc.textContent = ta.value.length;
+        aiWrap.innerHTML = "";
+      };
+      document.getElementById("btnAiRecusar").onclick = () => {
+        aiWrap.innerHTML = "";
+        ta.focus();
+      };
+    };
 
     // Toggle the mic button's own DOM in place — never a full render() while
     // recording, since that would remount the textarea and orphan the live
