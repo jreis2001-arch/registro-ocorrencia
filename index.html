@@ -14,6 +14,7 @@
 <link rel="icon" href="icon-192.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Work+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap">
 <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 <style>
   :root{
     --bg: #F4F6FA; --surface:#FFFFFF; --surface-alt:#F1F3F8; --border:#DDE2EC;
@@ -347,6 +348,9 @@ const RELACAO_CARREFOUR_OPTIONS = ["Cliente", "Colaborador", "Terceiro (pessoas 
 /* ============================= SUPABASE ============================= */
 const SUPABASE_URL = "https://cqrsietbgensatoytufm.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNxcnNpZXRiZ2Vuc2F0b3l0dWZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcxODI5OTksImV4cCI6MjEwMjc1ODk5OX0.E7Ur7v_bnajGMPA5S4L4eU2DK9Szr4wyDN393feU1CU";
+// Public by design (like the anon key above) — pairs with the secret key
+// kept only in Supabase's own Auth settings, never in this file.
+const TURNSTILE_SITE_KEY = "0x4AAAAAAEX8s7oyBee6r1LL";
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const STATUS_LABEL = {
@@ -381,6 +385,14 @@ async function fetchOccurrences() {
     .order("created_at", { ascending: false });
   if (error) { showToast("Erro ao carregar ocorrências: " + error.message); return []; }
   return data.map(mapOccurrenceFromDb);
+}
+
+// Stores someone claimed via autocadastro but a staff hasn't approved yet —
+// staff-only (RLS lets is_staff() see every row regardless of approval).
+async function fetchPendingStores() {
+  const { data, error } = await sb.from("stores").select("id,name,code,type").not("auth_user_id", "is", null).eq("approved", false).order("code");
+  if (error) { showToast("Erro ao carregar cadastros pendentes: " + error.message); return []; }
+  return data;
 }
 
 /* ============================= STATE ============================= */
@@ -906,6 +918,7 @@ let state = {
   store: null,
   role: null,               // "store" | "staff", set right after login
   dashRows: [],              // staff dashboard: raw occurrences joined with store info
+  pendingStores: [],         // staff-only: stores self-registered but not yet approved
   // statusMode: "todos" (padrão, mostra tudo em turquesa) | "ALTA" | "MEDIA" | "BAIXA"
   dashFilters: { statusMode: "todos", region: "todos", uf: "todos", storeType: "todos" },
   chatStoreId: null,
@@ -1095,6 +1108,16 @@ function screenHome() {
         <div class="btn btn-white" style="margin-top:2px;">Iniciar registro ${ICONS.arrowRight}</div>
       </button>
 
+      ${isStaff ? `
+        <button class="occ-item" id="btnCadastrosPendentes" style="margin-bottom:4px;">
+          <div class="occ-text">
+            <div class="occ-proto">Cadastros pendentes</div>
+            <div class="occ-status">${state.pendingStores.length} loja(s) aguardando aprovação</div>
+          </div>
+          ${ICONS.chevronRight}
+        </button>
+      ` : ""}
+
       <div class="section-title">${isStaff ? "Maiores riscos (todas as lojas)" : "Maiores riscos"}</div>
       ${recent.length === 0 ? `<div class="empty-note">Nenhuma ocorrência registrada ainda.</div>` :
         recent.map((o) => occRow(o)).join("")}
@@ -1107,6 +1130,9 @@ function screenHome() {
     state.screen = "relator";
     render();
   };
+  if (isStaff) {
+    document.getElementById("btnCadastrosPendentes").onclick = () => { state.screen = "aprovacoes"; render(); };
+  }
   document.getElementById("btnLogout").onclick = async () => {
     await sb.auth.signOut();
     state.store = null;
@@ -1229,7 +1255,11 @@ function screenDetalhe() {
   document.getElementById("btnBack").onclick = () => { state.screen = "minhas"; render(); };
   wireNav();
 }
-function escapeHtml(s) { return (s || "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
+// Escapes quotes too, not just &/</> — several call sites interpolate this
+// into an HTML attribute (value="${escapeHtml(x)}"), where an un-escaped "
+// in free-text input (e.g. the reporter's own name) breaks out of the
+// attribute and lets a typed value inject markup or an event handler.
+function escapeHtml(s) { return (s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 
 // Staff-only step: a store account already knows which store it is; a
 // staff account has none, so it must pick one before narrating an incident
@@ -2248,6 +2278,8 @@ function render() {
   if (s === "login") return screenLogin();
   if (s === "cadastro") return screenCadastro();
   if (s === "cadastroLoja") return screenCadastroLoja();
+  if (s === "aguardandoAprovacao") return screenAguardandoAprovacao();
+  if (s === "aprovacoes") return screenAprovacoes();
   if (s === "home") return screenHome();
   if (s === "minhas") return screenMinhas();
   if (s === "detalhe") return screenDetalhe();
@@ -2279,6 +2311,7 @@ async function loadStoreAndGo() {
     state.role = "staff";
     state.occurrences = await fetchOccurrences();
     await loadDashboardData();
+    state.pendingStores = await fetchPendingStores();
     state.screen = "dashboard";
     render();
     return;
@@ -2300,6 +2333,14 @@ async function loadStoreAndGo() {
     // Account exists (signed up, possibly even email-confirmed) but never
     // finished picking a store — resume registration instead of dead-ending.
     state.screen = "cadastroLoja";
+    render();
+    return;
+  }
+  if (!storeRow.approved) {
+    // Claimed but not yet reviewed by staff — auth_store_id() also enforces
+    // this at the RLS layer, so this isn't just a UI-level gate.
+    state.store = storeRow;
+    state.screen = "aguardandoAprovacao";
     render();
     return;
   }
@@ -2374,9 +2415,10 @@ function screenCadastro() {
       </div>
       <div style="display:flex; flex-direction:column; gap:10px;">
         <input type="email" id="regEmail" placeholder="E-mail" style="padding:13px 14px; border:1.5px solid var(--border); border-radius:12px; font-size:14px;">
-        <input type="password" id="regPassword" placeholder="Senha (mínimo 6 caracteres)" style="padding:13px 14px; border:1.5px solid var(--border); border-radius:12px; font-size:14px;">
+        <input type="password" id="regPassword" placeholder="Senha (mínimo 8 caracteres)" style="padding:13px 14px; border:1.5px solid var(--border); border-radius:12px; font-size:14px;">
         <input type="password" id="regPasswordConfirm" placeholder="Confirmar senha" style="padding:13px 14px; border:1.5px solid var(--border); border-radius:12px; font-size:14px;">
       </div>
+      <div id="turnstileWidget" style="display:flex; justify-content:center;"></div>
       <button class="btn btn-primary" id="btnCadastrar">Criar conta</button>
       <div class="q-sub" id="regError" style="color:var(--red); text-align:center;"></div>
       <button class="btn-text" id="btnVoltarLogin" style="align-self:center;">Já tem conta? Entrar</button>
@@ -2388,16 +2430,39 @@ function screenCadastro() {
   const btnCadastrar = document.getElementById("btnCadastrar");
   const errEl = document.getElementById("regError");
   document.getElementById("btnVoltarLogin").onclick = () => { state.screen = "login"; render(); };
+
+  // The widget is rendered explicitly (not via Turnstile's own DOM auto-scan)
+  // because mount() rebuilds this screen's HTML from scratch each visit —
+  // auto-scan only fires once, on the script's initial load.
+  let turnstileToken = "";
+  let turnstileWidgetId = null;
+  function renderTurnstile() {
+    if (typeof turnstile === "undefined") { setTimeout(renderTurnstile, 300); return; }
+    turnstileWidgetId = turnstile.render("#turnstileWidget", {
+      sitekey: TURNSTILE_SITE_KEY,
+      callback: (token) => { turnstileToken = token; },
+      "expired-callback": () => { turnstileToken = ""; },
+      "error-callback": () => { turnstileToken = ""; },
+    });
+  }
+  renderTurnstile();
+
   btnCadastrar.onclick = async () => {
     errEl.textContent = "";
     const email = emailInput.value.trim();
     const password = passInput.value;
     if (!email) { errEl.textContent = "Informe um e-mail."; return; }
-    if (password.length < 6) { errEl.textContent = "A senha precisa ter pelo menos 6 caracteres."; return; }
+    if (password.length < 8) { errEl.textContent = "A senha precisa ter pelo menos 8 caracteres."; return; }
     if (password !== passConfirmInput.value) { errEl.textContent = "As senhas não são iguais."; return; }
+    if (!turnstileToken) { errEl.textContent = "Confirme a verificação de segurança acima."; return; }
     btnCadastrar.disabled = true;
     btnCadastrar.textContent = "Criando conta…";
-    const { data, error } = await sb.auth.signUp({ email, password });
+    const { data, error } = await sb.auth.signUp({ email, password, options: { captchaToken: turnstileToken } });
+    if (error && typeof turnstile !== "undefined" && turnstileWidgetId !== null) {
+      // A rejected token can't be reused — reset so the widget issues a fresh one.
+      turnstile.reset(turnstileWidgetId);
+      turnstileToken = "";
+    }
     if (error) {
       errEl.textContent = error.message.includes("already registered") ? "Este e-mail já tem uma conta." : "Erro ao criar conta: " + error.message;
       btnCadastrar.disabled = false;
@@ -2481,6 +2546,81 @@ function screenCadastroLoja() {
     renderList("");
     document.getElementById("storeSearch").addEventListener("input", (e) => renderList(e.target.value));
   })();
+}
+
+function screenAguardandoAprovacao() {
+  mount(`
+    <div class="content" style="flex:1; justify-content:center; gap:20px; text-align:center;">
+      <div style="display:flex; flex-direction:column; align-items:center; gap:10px;">
+        <div class="logo">${ICONS.shield}</div>
+        <div class="topbar-title" style="font-size:19px;">Cadastro em análise</div>
+        <div class="q-sub">O cadastro para <strong>${escapeHtml(state.store.name)}</strong> foi enviado e está aguardando aprovação do CCO. Assim que for liberado, você já poderá usar o app normalmente.</div>
+      </div>
+      <button class="btn btn-primary" id="btnVerificarAprovacao">Verificar novamente</button>
+      <button class="btn-text" id="btnSairAguardando">Sair</button>
+    </div>
+  `);
+  document.getElementById("btnVerificarAprovacao").onclick = async () => { await loadStoreAndGo(); };
+  document.getElementById("btnSairAguardando").onclick = async () => {
+    await sb.auth.signOut();
+    state.session = null;
+    state.screen = "login";
+    render();
+  };
+}
+
+// Staff-only: approve or reject a store that self-registered. Rejecting
+// frees the store back to "unclaimed" so it can be registered again.
+function screenAprovacoes() {
+  mount(`
+    <div class="topbar">
+      <div class="topbar-row">
+        <button class="iconbtn" id="btnBack">${ICONS.back}</button>
+        <div class="topbar-title">Cadastros pendentes</div>
+      </div>
+    </div>
+    <div class="content" id="aprovacoesWrap"></div>
+    ${bottomNav("home")}
+  `);
+  document.getElementById("btnBack").onclick = () => { state.screen = "home"; render(); };
+  wireNav();
+  renderList();
+
+  function renderList() {
+    const wrap = document.getElementById("aprovacoesWrap");
+    const pending = state.pendingStores || [];
+    wrap.innerHTML = pending.length === 0 ? `<div class="empty-note">Nenhum cadastro pendente.</div>` :
+      pending.map((s) => `
+        <div class="card" style="margin-bottom:10px;">
+          <div style="font-weight:600; font-size:14px;">${escapeHtml(s.name)}</div>
+          <div style="font-size:12.5px; color:var(--ink-soft); margin-bottom:10px;">${escapeHtml(s.code)} · ${STORE_TYPE_LABELS[s.type] || s.type}</div>
+          <div style="display:flex; gap:10px;">
+            <button class="btn btn-primary" data-approve="${s.id}" style="flex:1;">Aprovar</button>
+            <button class="btn-text" data-reject="${s.id}">Rejeitar</button>
+          </div>
+        </div>
+      `).join("");
+    wrap.querySelectorAll("[data-approve]").forEach((btn) => {
+      btn.onclick = async () => {
+        btn.disabled = true;
+        const { error } = await sb.from("stores").update({ approved: true }).eq("id", btn.dataset.approve);
+        if (error) { showToast("Erro ao aprovar: " + error.message); btn.disabled = false; return; }
+        showToast("Loja aprovada.");
+        state.pendingStores = await fetchPendingStores();
+        renderList();
+      };
+    });
+    wrap.querySelectorAll("[data-reject]").forEach((btn) => {
+      btn.onclick = async () => {
+        btn.disabled = true;
+        const { error } = await sb.from("stores").update({ auth_user_id: null, approved: false }).eq("id", btn.dataset.reject);
+        if (error) { showToast("Erro ao rejeitar: " + error.message); btn.disabled = false; return; }
+        showToast("Cadastro rejeitado — a loja voltou a ficar disponível.");
+        state.pendingStores = await fetchPendingStores();
+        renderList();
+      };
+    });
+  }
 }
 
 boot();
