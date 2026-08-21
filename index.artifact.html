@@ -1,0 +1,953 @@
+<title>Registro de Ocorrência</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Work+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap">
+<style>
+  :root{
+    --bg: #F4F6FA; --surface:#FFFFFF; --surface-alt:#F1F3F8; --border:#DDE2EC;
+    --ink:#1B2434; --ink-soft:#5B6579; --ink-faint:#94A0B4;
+    --primary:#1E3A5F; --primary-dark:#13253C; --primary-soft:#E6ECF5;
+    --red:#C0362C; --red-soft:#FBE7E5; --amber:#B4720C; --amber-soft:#FBEED8;
+    --green:#1B7A43; --green-soft:#E3F3E9;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;}
+  body{
+    background:var(--bg); color:var(--ink); font-family:'Work Sans',system-ui,sans-serif;
+    display:flex; justify-content:center;
+  }
+  h1,h2,h3{font-family:'Space Grotesk',system-ui,sans-serif; margin:0;}
+  .mono{font-family:'JetBrains Mono',ui-monospace,monospace;}
+  button{font-family:inherit; cursor:pointer;}
+  textarea{font-family:inherit;}
+
+  #shell{width:100%; max-width:480px; min-height:100vh; background:var(--bg); display:flex; flex-direction:column; box-shadow:0 0 0 1px var(--border);}
+  #app{flex:1; display:flex; flex-direction:column;}
+
+  .topbar{padding:22px 20px 14px; background:var(--surface); border-bottom:1px solid var(--border); display:flex; flex-direction:column; gap:10px;}
+  .topbar-row{display:flex; align-items:center; gap:10px;}
+  .iconbtn{width:32px; height:32px; border-radius:9px; background:var(--surface-alt); border:none; display:flex; align-items:center; justify-content:center; color:var(--ink-soft); flex-shrink:0;}
+  .iconbtn:hover{background:var(--border);}
+  .logo{width:36px; height:36px; border-radius:10px; background:var(--primary); display:flex; align-items:center; justify-content:center; flex-shrink:0;}
+  .topbar-title{font-family:'Space Grotesk'; font-size:16.5px; font-weight:700;}
+  .topbar-sub{font-size:12px; color:var(--ink-soft);}
+  .step-label{font-size:11.5px; color:var(--ink-soft);}
+
+  .content{flex:1; padding:20px; display:flex; flex-direction:column; gap:16px; padding-bottom:24px;}
+
+  .section-title{font-size:13px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.04em;}
+
+  .featured{background:linear-gradient(135deg,var(--primary) 0%,var(--primary-dark) 100%); border-radius:16px; padding:20px; display:flex; flex-direction:column; gap:10px; color:#fff;}
+  .featured-badge{background:rgba(255,255,255,.18); border-radius:999px; padding:5px 10px; font-size:11.5px; font-weight:600; display:flex; align-items:center; gap:5px; width:fit-content;}
+  .featured-title{font-family:'Space Grotesk'; font-size:18px; font-weight:700;}
+  .featured-desc{font-size:13px; opacity:.92; line-height:1.4;}
+  .btn{border:none; border-radius:12px; padding:14px; font-weight:600; font-size:14.5px; display:flex; align-items:center; justify-content:center; gap:8px;}
+  .btn-primary{background:var(--primary); color:#fff;}
+  .btn-primary:disabled{opacity:.45; cursor:not-allowed;}
+  .btn-white{background:#fff; color:var(--primary-dark);}
+  .btn-ghost{background:transparent; color:var(--ink-soft); border:1.5px solid var(--border);}
+  .btn-text{background:none; border:none; color:var(--ink-soft); font-weight:600; font-size:13px; text-align:center; padding:6px;}
+
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
+  .cat-card{background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:16px 14px; display:flex; flex-direction:column; gap:8px; min-height:96px; text-align:left;}
+  .cat-icon{width:34px; height:34px; border-radius:9px; background:var(--surface-alt); display:flex; align-items:center; justify-content:center; color:var(--ink-soft);}
+  .cat-label{font-size:13px; font-weight:600; line-height:1.25;}
+
+  .occ-item{background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:13px 15px; display:flex; align-items:center; gap:12px; text-align:left; width:100%;}
+  .occ-dot{width:9px; height:9px; border-radius:999px; flex-shrink:0;}
+  .occ-text{display:flex; flex-direction:column; gap:2px; flex:1; min-width:0;}
+  .occ-proto{font-size:13.5px; font-weight:600;}
+  .occ-status{font-size:11.5px; color:var(--ink-soft); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .empty-note{font-size:13px; color:var(--ink-faint); text-align:center; padding:30px 10px;}
+
+  .bottomnav{background:var(--surface); border-top:1px solid var(--border); display:flex; padding:9px 8px 13px; gap:4px; margin-top:auto;}
+  .navitem{flex:1; background:none; border:none; display:flex; flex-direction:column; align-items:center; gap:4px; padding:6px 0; color:var(--ink-faint);}
+  .navitem.active{color:var(--primary);}
+  .navlabel{font-size:10.5px; font-weight:600;}
+
+  /* narrativa */
+  .narrative-box{position:relative;}
+  textarea#narrativeInput{
+    width:100%; min-height:220px; border:1.5px solid var(--border); border-radius:14px;
+    padding:16px; font-size:14.5px; line-height:1.5; color:var(--ink); resize:vertical; background:var(--surface);
+  }
+  textarea#narrativeInput:focus{outline:none; border-color:var(--primary);}
+  .mic-row{display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:10px;}
+  .mic-btn{display:flex; align-items:center; gap:8px; border:1.5px solid var(--border); background:var(--surface); border-radius:999px; padding:9px 16px; font-size:13px; font-weight:600; color:var(--ink);}
+  .mic-btn.recording{background:var(--red-soft); border-color:var(--red); color:var(--red); animation:pulse-ring 1.4s infinite;}
+  .mic-icon{display:inline-flex;}
+  .mic-btn.recording .mic-icon{animation:pulse-icon 1.4s infinite;}
+  @keyframes pulse-ring{0%{box-shadow:0 0 0 0 rgba(192,54,44,.35);} 70%{box-shadow:0 0 0 9px rgba(192,54,44,0);} 100%{box-shadow:0 0 0 0 rgba(192,54,44,0);}}
+  @keyframes pulse-icon{0%,100%{transform:scale(1); opacity:1;} 50%{transform:scale(1.35); opacity:.55;}}
+  .charcount{font-size:11.5px; color:var(--ink-faint);}
+  .helper{display:flex; gap:10px; background:var(--primary-soft); border-radius:12px; padding:12px 14px;}
+  .helper svg{color:var(--primary); flex-shrink:0; margin-top:1px;}
+  .helper-text{font-size:12px; color:var(--primary-dark); line-height:1.4;}
+  .speech-warn{font-size:11.5px; color:var(--amber); background:var(--amber-soft); border-radius:10px; padding:8px 12px;}
+
+  /* deteccao / chips */
+  .detect-summary{display:flex; flex-direction:column; gap:8px;}
+  .detect-chip{display:flex; align-items:center; gap:10px; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:10px 12px;}
+  .detect-chip svg.ok{color:var(--green); flex-shrink:0;}
+  .detect-chip-text{flex:1; font-size:12.5px;}
+  .detect-chip-label{color:var(--ink-soft);}
+  .detect-chip-value{font-weight:600;}
+  .detect-edit{background:none; border:none; color:var(--primary); font-size:11.5px; font-weight:600; flex-shrink:0;}
+
+  /* perguntas */
+  .crit-row{display:flex; align-items:center; gap:8px;}
+  .crit-chip{display:flex; align-items:center; gap:7px; background:var(--red-soft); border-radius:999px; padding:6px 12px;}
+  .crit-chip.MEDIA{background:var(--amber-soft);}
+  .crit-chip.BAIXA{background:var(--green-soft);}
+  .crit-dot{width:9px; height:9px; border-radius:999px; background:var(--red);}
+  .crit-chip.MEDIA .crit-dot{background:var(--amber);}
+  .crit-chip.BAIXA .crit-dot{background:var(--green);}
+  .crit-text{display:flex; flex-direction:column; line-height:1.1;}
+  .crit-level{font-size:12px; font-weight:700; color:var(--red);}
+  .crit-chip.MEDIA .crit-level{color:var(--amber);}
+  .crit-chip.BAIXA .crit-level{color:var(--green);}
+  .crit-sub{font-size:9px; color:var(--ink-soft);}
+  .progress-track{height:5px; background:var(--surface-alt); border-radius:999px; overflow:hidden;}
+  .progress-fill{height:100%; background:var(--primary); border-radius:999px; transition:width .25s;}
+
+  .q-title{font-family:'Space Grotesk'; font-size:18px; font-weight:700; line-height:1.3;}
+  .q-sub{font-size:12.5px; color:var(--ink-soft); margin-top:4px;}
+  .options{display:flex; flex-direction:column; gap:10px; margin-top:12px;}
+  .option{display:flex; align-items:center; gap:12px; background:var(--surface); border:1.5px solid var(--border); border-radius:14px; padding:15px; text-align:left; width:100%;}
+  .option.selected{border-color:var(--primary); background:var(--primary-soft);}
+  .opt-dot{width:13px; height:13px; border-radius:999px; flex-shrink:0;}
+  .opt-label{font-size:14px; font-weight:600; flex:1;}
+  .opt-check{width:19px; height:19px; border-radius:999px; border:2px solid var(--border); flex-shrink:0; display:flex; align-items:center; justify-content:center;}
+  .option.selected .opt-check{border-color:var(--primary); background:var(--primary); color:#fff;}
+
+  .chip-toggle{display:inline-flex; align-items:center; gap:6px; border:1.5px solid var(--border); background:var(--surface); border-radius:999px; padding:9px 14px; font-size:13px; font-weight:600; color:var(--ink);}
+  .chip-toggle.selected{border-color:var(--primary); background:var(--primary-soft); color:var(--primary-dark);}
+  .chip-wrap{display:flex; flex-wrap:wrap; gap:8px; margin-top:12px;}
+
+  /* evidencias */
+  .secure{display:flex; gap:12px; background:var(--primary-soft); border-radius:14px; padding:16px;}
+  .secure-icon{width:36px; height:36px; border-radius:10px; background:var(--primary); display:flex; align-items:center; justify-content:center; flex-shrink:0; color:#fff;}
+  .secure-title{font-size:13px; font-weight:700; color:var(--primary-dark);}
+  .secure-desc{font-size:11.5px; color:var(--primary-dark); opacity:.85; line-height:1.4; margin-top:2px;}
+  .upload-area{border:1.5px dashed var(--border); border-radius:16px; padding:26px 16px; display:flex; flex-direction:column; align-items:center; gap:8px; background:var(--surface);}
+  .upload-title{font-size:13.5px; font-weight:600;}
+  .upload-sub{font-size:11px; color:var(--ink-faint);}
+  .file-item{display:flex; align-items:center; gap:12px; background:var(--surface); border:1px solid var(--border); border-radius:13px; padding:10px 12px;}
+  .file-thumb{width:40px; height:40px; border-radius:9px; background:var(--surface-alt); display:flex; align-items:center; justify-content:center; color:var(--ink-soft); flex-shrink:0; overflow:hidden;}
+  .file-thumb img{width:100%; height:100%; object-fit:cover;}
+  .file-text{flex:1; min-width:0;}
+  .file-name{font-size:12.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .file-meta{font-size:11px; color:var(--ink-soft);}
+  .file-remove{width:26px; height:26px; border-radius:8px; background:var(--surface-alt); border:none; display:flex; align-items:center; justify-content:center; color:var(--ink-faint); flex-shrink:0;}
+
+  /* revisao */
+  .report-box{background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:4px;}
+  textarea#reportText{width:100%; min-height:340px; border:none; padding:16px; font-size:13px; line-height:1.55; color:var(--ink); resize:vertical; font-family:'JetBrains Mono',ui-monospace,monospace;}
+  textarea#reportText:focus{outline:none;}
+  .edit-note{font-size:11.5px; color:var(--ink-faint); display:flex; align-items:center; gap:6px;}
+
+  /* confirmacao */
+  .center-col{align-items:center; text-align:center;}
+  .check-circle{width:70px; height:70px; border-radius:999px; background:var(--green-soft); display:flex; align-items:center; justify-content:center; color:var(--green); margin:14px auto 0;}
+  .headline{font-family:'Space Grotesk'; font-size:19px; font-weight:700; margin-top:6px;}
+  .subtext{font-size:13px; color:var(--ink-soft); margin-top:4px; line-height:1.4;}
+  .proto-card{width:100%; background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:18px; display:flex; flex-direction:column; gap:13px; text-align:left; margin-top:8px;}
+  .proto-row{display:flex; align-items:center; justify-content:space-between;}
+  .proto-label{font-size:11px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.04em;}
+  .proto-value{font-family:'Space Grotesk'; font-size:18px; font-weight:700;}
+  .divider{height:1px; background:var(--border);}
+  .info-grid{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
+  .info-item{display:flex; flex-direction:column; gap:2px;}
+  .info-label{font-size:10.5px; color:var(--ink-faint);}
+  .info-value{font-size:12.5px; font-weight:600;}
+
+  /* detalhe */
+  .detail-section{background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:16px; display:flex; flex-direction:column; gap:10px;}
+  .detail-label{font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.04em;}
+  .detail-text{font-size:13px; line-height:1.55; white-space:pre-wrap;}
+
+  .toast{position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:var(--ink); color:#fff; padding:11px 18px; border-radius:999px; font-size:13px; font-weight:600; z-index:50; opacity:0; pointer-events:none; transition:opacity .2s;}
+  .toast.show{opacity:1;}
+
+  @media (max-width:520px){ #shell{box-shadow:none;} }
+</style>
+<div id="shell"><div id="app"></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================= ICONS ============================= */
+const ICONS = {
+  back: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>`,
+  shield: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z"/></svg>`,
+  clock: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>`,
+  arrowRight: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>`,
+  chevronRight: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>`,
+  check: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>`,
+  mic: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/></svg>`,
+  micOff: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18M9 9v2a3 3 0 004.24 2.73M15 9.34V6a3 3 0 00-5.94-.6M5 11a7 7 0 0010.2 6.2M12 18v3"/></svg>`,
+  camera: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8a2 2 0 012-2h1.2l.9-1.5A1 1 0 019 4h6a1 1 0 01.9.5L16.8 6H18a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2V8z"/><circle cx="12" cy="13" r="3.5"/></svg>`,
+  lock: `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>`,
+  trash: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>`,
+  info: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>`,
+  home: `<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7M5 10v10h14V10"/></svg>`,
+  list: `<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 3h6v3H9zM8 11h8M8 15h5"/></svg>`,
+  furto: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l2-3h14l2 3M3 7v12a1 1 0 001 1h16a1 1 0 001-1V7M3 7h18M9 11a3 3 0 006 0"/></svg>`,
+  acidente: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>`,
+  operacional: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>`,
+  pencil: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>`,
+};
+
+/* ============================= DATA MODEL ============================= */
+const LEVELS = { BAIXA: 0, MEDIA: 1, ALTA: 2 };
+const LEVEL_LABEL = { ALTA: "Alta", MEDIA: "Média", BAIXA: "Baixa" };
+
+// Ordered triage questions from the incident flowchart's decision tree.
+const QUESTIONS = [
+  {
+    id: "discriminacao",
+    title: "O evento está relacionado a temas de discriminação?",
+    sub: "Com base no que você descreveu.",
+    options: [
+      { value: "sim", label: "Sim", level: "ALTA" },
+      { value: "investigar", label: "Necessita investigação", level: "MEDIA" },
+      { value: "nao", label: "Não", level: "BAIXA" },
+    ],
+    detect(t) {
+      if (/n[aã]o (foi|teve|houve) .{0,20}(racis|discrimina)/.test(t)) return "nao";
+      if (/racis|discrimina|preconceito|homofob|xenofob|gordofob|capacitis|machis/.test(t)) return "sim";
+      return null;
+    },
+  },
+  {
+    id: "vitima",
+    title: "Quem foi a vítima?",
+    sub: "A pessoa que sofreu a ocorrência.",
+    options: [
+      { value: "cliente", label: "Cliente", level: "ALTA" },
+      { value: "colaborador", label: "Colaborador", level: "MEDIA" },
+      { value: "fornecedor", label: "Fornecedor", level: "MEDIA" },
+      { value: "terceiros", label: "Terceiros", level: "MEDIA" },
+    ],
+    detect(t) {
+      if (/colaborador|funcion[aá]ri|colega de trabalho/.test(t)) return "colaborador";
+      if (/fornecedor|entregador|motorista/.test(t)) return "fornecedor";
+      if (/\bcliente\b/.test(t)) return "cliente";
+      return null;
+    },
+  },
+  {
+    id: "conflito",
+    title: "Houve conflito durante a ocorrência?",
+    sub: "Selecione o que melhor descreve o ocorrido.",
+    options: [
+      { value: "fisica", label: "Agressão física", level: "ALTA" },
+      { value: "verbal", label: "Agressão verbal", level: "MEDIA" },
+      { value: "sem", label: "Sem conflito", level: "BAIXA" },
+    ],
+    detect(t) {
+      if (/n[aã]o houve conflito|sem conflito/.test(t)) return "sem";
+      if (/bateu|empurrou|agrediu|\bsoco\b|\btapa\b|chutou|arranh/.test(t)) return "fisica";
+      if (/xingou|gritou|ofendeu|insultou|discuss[aã]o|gritaria/.test(t)) return "verbal";
+      return null;
+    },
+  },
+  {
+    id: "integridade",
+    title: "Houve comprometimento da integridade física?",
+    sub: "Selecione a opção que melhor descreve o ocorrido.",
+    options: [
+      { value: "obito", label: "Óbito", level: "ALTA" },
+      { value: "ferimentos", label: "Ferimentos, machucados", level: "MEDIA" },
+      { value: "sem", label: "Sem comprometimento", level: "BAIXA" },
+    ],
+    detect(t) {
+      if (/n[aã]o (se )?(chegou a )?machuc|n[aã]o (se )?feriu|n[aã]o ficou ferid|sem ferimentos|n[aã]o houve ferimentos/.test(t)) return "sem";
+      if (/morreu|[oó]bito|faleceu/.test(t)) return "obito";
+      if (/machuc|ferimento|sangue|hospital|socorro|ambul[aâ]ncia|contus/.test(t)) return "ferimentos";
+      return null;
+    },
+  },
+  {
+    id: "impacto",
+    title: "Houve impacto na operação da loja?",
+    sub: "Selecione o que melhor descreve o ocorrido.",
+    options: [
+      { value: "total", label: "Paralisação total", level: "ALTA" },
+      { value: "parcial", label: "Paralisação parcial", level: "MEDIA" },
+      { value: "sem", label: "Sem paralisação", level: "BAIXA" },
+    ],
+    detect(t) {
+      if (/fechamos a loja|fechou a loja|evacua|parou tudo|loja fechada/.test(t)) return "total";
+      if (/atrasou|fila grande|setor fechado|parte da loja|caixa .{0,10}parad/.test(t)) return "parcial";
+      if (/sem paralisa[cç][aã]o|n[aã]o (precisamos|foi preciso|houve) .{0,20}(fechar|parar|evacuar)/.test(t)) return "sem";
+      return null;
+    },
+  },
+  {
+    id: "motivo",
+    title: "Qual foi o motivo da ocorrência?",
+    sub: "Selecione o que melhor descreve o ocorrido.",
+    options: [
+      { value: "protocolo", label: "Quebra de protocolo", level: "ALTA" },
+      { value: "inconclusivo", label: "Inconclusivo", level: "MEDIA" },
+      { value: "terceiros", label: "Provocado por terceiros", level: "BAIXA" },
+    ],
+    detect(t) {
+      if (/n[aã]o seguiu o procedimento|falha no processo|protocolo n[aã]o foi seguido|erro no atendimento/.test(t)) return "protocolo";
+      if (/cliente come[cç]ou|ele que come[cç]ou|provocou|terceiro/.test(t)) return "terceiros";
+      return null;
+    },
+  },
+];
+
+const THEMES = [
+  { value: "racial", label: "Racial", kw: /negr|racis|cor da pele|ra[çc]a/ },
+  { value: "aparencia", label: "Aparência física", kw: /apar[eê]ncia|gordofob|peso corporal|est[eé]tica/ },
+  { value: "deficiencia", label: "Deficiência", kw: /defici[eê]ncia|cadeirante|\bpcd\b|deficiente/ },
+  { value: "socioeconomica", label: "Socioeconômica", kw: /classe social|socioecon[oô]m|pobre|morador de rua/ },
+  { value: "origem", label: "Origem", kw: /nordestin|estrangeir|imigrant|origem regional/ },
+  { value: "genero", label: "Identidade e/ou gênero sexual", kw: /g[eê]nero|identidade sexual|homofob|\blgbt/ },
+];
+
+/* ============================= STATE ============================= */
+const STORE_KEY = "ro_occurrences_v1";
+function loadOccurrences() {
+  try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; } catch (e) { return []; }
+}
+function saveOccurrences(list) {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(list)); }
+  catch (e) { showToast("Não foi possível salvar no armazenamento deste navegador — a ocorrência segue disponível só nesta sessão."); }
+}
+
+let state = {
+  screen: "home",
+  occurrences: loadOccurrences(),
+  draft: null,
+  detailId: null,
+};
+
+function newDraft() {
+  return {
+    narrativeRaw: "",
+    answers: {},
+    detected: {},
+    manualOrder: [], // ids answered manually in this session, for back-navigation
+    themes: [],
+    themesDetected: false,
+    evidence: [], // {name, size, type, url}
+    reportText: "",
+  };
+}
+
+/* ============================= TEXT PROCESSING ============================= */
+function normalize(t) { return (t || "").toLowerCase(); }
+
+function runDetection(draft) {
+  const t = normalize(draft.narrativeRaw);
+  QUESTIONS.forEach((q) => {
+    if (draft.answers[q.id] !== undefined) return;
+    const v = q.detect(t);
+    if (v) { draft.answers[q.id] = v; draft.detected[q.id] = true; }
+  });
+  if (!draft.themesDetected) {
+    const found = THEMES.filter((th) => th.kw.test(t)).map((th) => th.value);
+    if (found.length) { draft.themes = found; draft.themesDetected = true; }
+  }
+}
+
+function pendingQuestions(draft) {
+  return QUESTIONS.filter((q) => draft.answers[q.id] === undefined);
+}
+
+function computeCriticality(draft) {
+  let max = "BAIXA";
+  QUESTIONS.forEach((q) => {
+    const val = draft.answers[q.id];
+    if (!val) return;
+    const opt = q.options.find((o) => o.value === val);
+    if (opt && LEVELS[opt.level] > LEVELS[max]) max = opt.level;
+  });
+  // evidence weighs in: attached evidence raises confidence/criticality of an already-flagged case
+  const evLevel = draft.evidence.length > 0 ? "ALTA" : draft.themes.length ? "MEDIA" : "BAIXA";
+  if (LEVELS[evLevel] > LEVELS[max]) max = evLevel;
+  return max;
+}
+
+function cleanupNarrative(raw) {
+  let t = (raw || "").trim().replace(/\s+/g, " ");
+  if (!t) return "";
+  t = t.replace(/\b(tipo|então|aí|daí|né)[,]?\s+/gi, "");
+  // capitalize sentence starts
+  t = t.replace(/(^\s*\w|[.!?]\s+\w)/g, (m) => m.toUpperCase());
+  if (!/[.!?]$/.test(t)) t += ".";
+  return t;
+}
+
+function optLabel(qid, value) {
+  const q = QUESTIONS.find((q) => q.id === qid);
+  const o = q && q.options.find((o) => o.value === value);
+  return o ? o.label : "—";
+}
+
+function generateReport(draft, meta) {
+  const lines = [];
+  lines.push("RELATO FORMAL DE OCORRÊNCIA");
+  lines.push("");
+  lines.push(`Protocolo: ${meta.protocol}`);
+  lines.push(`Loja: ${meta.store}  |  Registrado por: ${meta.operator}`);
+  lines.push(`Data/hora do registro: ${meta.dateLabel}`);
+  lines.push(`Criticidade: ${LEVEL_LABEL[meta.criticality]}`);
+  lines.push("");
+  lines.push("RESUMO ESTRUTURADO");
+  QUESTIONS.forEach((q) => {
+    const v = draft.answers[q.id];
+    if (v) lines.push(`- ${q.title.replace(/\?$/, "")}: ${optLabel(q.id, v)}`);
+  });
+  if (draft.themes.length) {
+    lines.push(`- Temas identificados: ${draft.themes.map((v) => THEMES.find((th) => th.value === v).label).join(", ")}`);
+  }
+  lines.push(`- Evidências anexadas: ${draft.evidence.length} arquivo(s)`);
+  lines.push("");
+  lines.push("NARRATIVA (relatada pelo colaborador, revisada para formato profissional)");
+  lines.push(cleanupNarrative(draft.narrativeRaw));
+  return lines.join("\n");
+}
+
+function genProtocol() {
+  const y = new Date().getFullYear();
+  const n = Math.floor(100000 + Math.random() * 900000);
+  return `RO-${y}-${n}`;
+}
+
+/* ============================= SPEECH ============================= */
+let recognition = null;
+let isRecording = false;
+function speechSupported() {
+  return "webkitSpeechRecognition" in window || "SpeechRecognition" in window;
+}
+
+/* ============================= TOAST ============================= */
+function showToast(msg) {
+  const el = document.getElementById("toast");
+  el.textContent = msg;
+  el.classList.add("show");
+  setTimeout(() => el.classList.remove("show"), 2200);
+}
+
+/* ============================= RENDER HELPERS ============================= */
+function el(html) {
+  const t = document.createElement("template");
+  t.innerHTML = html.trim();
+  return t.content.firstElementChild;
+}
+function mount(html) {
+  const app = document.getElementById("app");
+  app.innerHTML = html;
+}
+function fmtDate(iso) {
+  const d = new Date(iso);
+  return d.toLocaleDateString("pt-BR") + " · " + d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
+/* ============================= SCREENS ============================= */
+function screenHome() {
+  const recent = state.occurrences.slice(-3).reverse();
+  mount(`
+    <div class="topbar">
+      <div class="topbar-row">
+        <div class="logo">${ICONS.shield}</div>
+        <div>
+          <div class="topbar-title">Registro de Ocorrência</div>
+          <div class="topbar-sub">Loja 0234 · Operadora Ana Paula</div>
+        </div>
+      </div>
+    </div>
+    <div class="content">
+      <div class="section-title">Ocorrência prioritária</div>
+      <button class="featured" id="btnNovaOcorrencia" style="border:none; text-align:left;">
+        <div class="featured-badge">${ICONS.clock} Atendimento em até 1h</div>
+        <div class="featured-title">Ocorrência Social / Discriminação</div>
+        <div class="featured-desc">Descreva com suas palavras — o app organiza as perguntas e o relato para você.</div>
+        <div class="btn btn-white" style="margin-top:2px;">Iniciar registro ${ICONS.arrowRight}</div>
+      </button>
+
+      <div class="section-title">Outros tipos (em breve)</div>
+      <div class="grid2">
+        <div class="cat-card"><div class="cat-icon">${ICONS.furto}</div><div class="cat-label">Furto / Perda de mercadoria</div></div>
+        <div class="cat-card"><div class="cat-icon">${ICONS.acidente}</div><div class="cat-label">Acidente / Segurança do trabalho</div></div>
+        <div class="cat-card"><div class="cat-icon">${ICONS.operacional}</div><div class="cat-label">Problema operacional</div></div>
+      </div>
+
+      <div class="section-title">Últimas ocorrências</div>
+      ${recent.length === 0 ? `<div class="empty-note">Nenhuma ocorrência registrada ainda.</div>` :
+        recent.map((o) => occRow(o)).join("")}
+    </div>
+    ${bottomNav("home")}
+  `);
+  document.getElementById("btnNovaOcorrencia").onclick = () => {
+    state.draft = newDraft();
+    state._themeAsked = false;
+    state.screen = "narrativa";
+    render();
+  };
+  wireNav();
+  wireOccRows();
+}
+
+function critDotColor(level) { return level === "ALTA" ? "var(--red)" : level === "MEDIA" ? "var(--amber)" : "var(--green)"; }
+
+function occRow(o) {
+  return `
+    <button class="occ-item" data-id="${o.id}">
+      <div class="occ-dot" style="background:${critDotColor(o.criticality)}"></div>
+      <div class="occ-text">
+        <div class="occ-proto">${o.protocol}</div>
+        <div class="occ-status">${LEVEL_LABEL[o.criticality]} · ${o.status}</div>
+      </div>
+      ${ICONS.chevronRight}
+    </button>`;
+}
+function wireOccRows() {
+  document.querySelectorAll(".occ-item").forEach((btn) => {
+    btn.onclick = () => { state.detailId = btn.dataset.id; state.screen = "detalhe"; render(); };
+  });
+}
+
+function bottomNav(active) {
+  return `
+    <div class="bottomnav">
+      <button class="navitem ${active === "home" ? "active" : ""}" data-nav="home">${ICONS.home}<span class="navlabel">Início</span></button>
+      <button class="navitem ${active === "minhas" ? "active" : ""}" data-nav="minhas">${ICONS.list}<span class="navlabel">Minhas RO</span></button>
+    </div>`;
+}
+function wireNav() {
+  document.querySelectorAll("[data-nav]").forEach((btn) => {
+    btn.onclick = () => { state.screen = btn.dataset.nav; render(); };
+  });
+}
+
+function screenMinhas() {
+  const list = state.occurrences.slice().reverse();
+  mount(`
+    <div class="topbar">
+      <div class="topbar-row"><div class="topbar-title">Minhas ocorrências</div></div>
+    </div>
+    <div class="content">
+      ${list.length === 0 ? `<div class="empty-note">Nenhuma ocorrência registrada ainda.</div>` :
+        list.map((o) => occRow(o)).join("")}
+    </div>
+    ${bottomNav("minhas")}
+  `);
+  wireNav();
+  wireOccRows();
+}
+
+function screenDetalhe() {
+  const o = state.occurrences.find((x) => x.id === state.detailId);
+  if (!o) { state.screen = "home"; render(); return; }
+  mount(`
+    <div class="topbar">
+      <div class="topbar-row">
+        <button class="iconbtn" id="btnBack">${ICONS.back}</button>
+        <div class="topbar-title">${o.protocol}</div>
+      </div>
+      <div class="crit-row"><div class="crit-chip ${o.criticality}"><div class="crit-dot"></div><div class="crit-text"><div class="crit-level">${LEVEL_LABEL[o.criticality]}</div><div class="crit-sub">criticidade</div></div></div></div>
+    </div>
+    <div class="content">
+      <div class="detail-section">
+        <div class="detail-label">Status</div>
+        <div class="detail-text">${o.status} — ${fmtDate(o.createdAt)}</div>
+      </div>
+      <div class="detail-section">
+        <div class="detail-label">Relato</div>
+        <div class="detail-text">${escapeHtml(o.reportText)}</div>
+      </div>
+      <div class="detail-section">
+        <div class="detail-label">Evidências</div>
+        <div class="detail-text">${o.evidence.length} arquivo(s) anexado(s) nesta sessão do dispositivo.</div>
+      </div>
+    </div>
+    ${bottomNav("minhas")}
+  `);
+  document.getElementById("btnBack").onclick = () => { state.screen = "minhas"; render(); };
+  wireNav();
+}
+function escapeHtml(s) { return (s || "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
+
+function screenNarrativa() {
+  const d = state.draft;
+  mount(`
+    <div class="topbar">
+      <div class="topbar-row">
+        <button class="iconbtn" id="btnBack">${ICONS.back}</button>
+        <div>
+          <div class="topbar-title">Ocorrência Social / Discriminação</div>
+          <div class="step-label">Conte o que aconteceu</div>
+        </div>
+      </div>
+    </div>
+    <div class="content">
+      <div class="q-title">Descreva o que aconteceu, do seu jeito</div>
+      <div class="q-sub">Escreva ou fale naturalmente — não precisa seguir um formato. O app identifica os detalhes e só pergunta o que ainda faltar.</div>
+      <div class="narrative-box">
+        <textarea id="narrativeInput" placeholder="Ex.: Hoje por volta das 15h um cliente começou a gritar com a colaboradora Joana no caixa 3, fazendo comentários sobre a cor da pele dela...">${d.narrativeRaw}</textarea>
+      </div>
+      <div class="mic-row">
+        <button class="mic-btn ${isRecording ? "recording" : ""}" id="btnMic"><span class="mic-icon">${isRecording ? ICONS.micOff : ICONS.mic}</span> ${isRecording ? "Parar gravação" : "Falar em vez de digitar"}</button>
+        <div class="charcount"><span id="charcount">${d.narrativeRaw.length}</span> caracteres</div>
+      </div>
+      ${!speechSupported() ? `<div class="speech-warn">Reconhecimento de voz não disponível neste navegador — use Chrome ou Edge, ou digite o relato.</div>` : ``}
+      <div class="helper">${ICONS.info}<div class="helper-text">Depois de continuar, o app organiza automaticamente o que já foi identificado e pergunta apenas o que faltar.</div></div>
+      <button class="btn btn-primary" id="btnContinuar" ${d.narrativeRaw.trim().length < 8 ? "disabled" : ""}>Continuar ${ICONS.arrowRight}</button>
+    </div>
+  `);
+  const ta = document.getElementById("narrativeInput");
+  const cc = document.getElementById("charcount");
+  const btnContinuar = document.getElementById("btnContinuar");
+  const btnMic = document.getElementById("btnMic");
+  document.getElementById("btnBack").onclick = () => {
+    if (isRecording) { recognition && recognition.stop(); }
+    state.screen = "home";
+    render();
+  };
+  ta.addEventListener("input", () => {
+    d.narrativeRaw = ta.value;
+    cc.textContent = ta.value.length;
+    btnContinuar.disabled = ta.value.trim().length < 8;
+  });
+
+  // Toggle the mic button's own DOM in place — never a full render() while
+  // recording, since that would remount the textarea and orphan the live
+  // transcript updates onto a detached node the user can no longer see.
+  function setMicUI(recording) {
+    btnMic.classList.toggle("recording", recording);
+    btnMic.innerHTML = `<span class="mic-icon">${recording ? ICONS.micOff : ICONS.mic}</span> ${recording ? "Parar gravação" : "Falar em vez de digitar"}`;
+  }
+
+  btnMic.onclick = () => {
+    if (isRecording) { recognition && recognition.stop(); return; }
+    startDictation();
+  };
+  function startDictation() {
+    if (!speechSupported()) { showToast("Reconhecimento de voz não é suportado neste navegador."); return; }
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    recognition = new SR();
+    recognition.lang = "pt-BR";
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    const base = d.narrativeRaw ? d.narrativeRaw.trim() + " " : "";
+    let accumulatedFinal = "";
+    recognition.onresult = (e) => {
+      let interim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const r = e.results[i];
+        if (r.isFinal) accumulatedFinal += r[0].transcript + " ";
+        else interim += r[0].transcript;
+      }
+      d.narrativeRaw = (base + accumulatedFinal).trim() + " ";
+      ta.value = (d.narrativeRaw || "") + interim;
+      cc.textContent = ta.value.length;
+      btnContinuar.disabled = ta.value.trim().length < 8;
+    };
+    recognition.onerror = () => { isRecording = false; setMicUI(false); };
+    recognition.onend = () => { isRecording = false; setMicUI(false); };
+    recognition.start();
+    isRecording = true;
+    setMicUI(true);
+  }
+  btnContinuar.onclick = () => {
+    d.narrativeRaw = ta.value.trim();
+    runDetection(d);
+    state.screen = "perguntas";
+    render();
+  };
+}
+
+function screenPerguntas() {
+  const d = state.draft;
+  const pending = pendingQuestions(d);
+
+  if (pending.length === 0) {
+    if (!state._themeAsked) { renderThemeStep(); return; }
+    d.criticality = computeCriticality(d);
+    state.screen = "evidencias";
+    render();
+    return;
+  }
+
+  // Always ask the first still-unanswered question, in the flowchart's fixed order.
+  // This stays correct even after "editar" removes an answer out of order.
+  const q = pending[0];
+  const answeredCount = QUESTIONS.length - pending.length;
+  const pct = Math.round((answeredCount / QUESTIONS.length) * 100);
+  const critNow = computeCriticality(d);
+
+  mount(`
+    <div class="topbar">
+      <div class="topbar-row">
+        <button class="iconbtn" id="btnBack">${ICONS.back}</button>
+        <div>
+          <div class="topbar-title">Ocorrência Social / Discriminação</div>
+          <div class="step-label">Pergunta ${answeredCount + 1} de ${QUESTIONS.length}</div>
+        </div>
+      </div>
+      <div class="crit-row">
+        <div class="crit-chip ${critNow}"><div class="crit-dot"></div><div class="crit-text"><div class="crit-level">${LEVEL_LABEL[critNow]}</div><div class="crit-sub">criticidade prévia</div></div></div>
+      </div>
+      <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
+    </div>
+    <div class="content">
+      ${renderAnswerChips(d)}
+      <div class="q-title">${q.title}</div>
+      <div class="q-sub">${q.sub}</div>
+      <div class="options">
+        ${q.options.map((o) => `
+          <button class="option" data-value="${o.value}">
+            <div class="opt-dot" style="background:${critDotColor(o.level)}"></div>
+            <div class="opt-label">${o.label}</div>
+            <div class="opt-check"></div>
+          </button>`).join("")}
+      </div>
+    </div>
+  `);
+  document.getElementById("btnBack").onclick = () => {
+    if (d.manualOrder.length === 0) {
+      state.screen = "narrativa";
+    } else {
+      const lastId = d.manualOrder.pop();
+      delete d.answers[lastId];
+      delete d.detected[lastId];
+    }
+    render();
+  };
+  document.querySelectorAll(".option").forEach((btn) => {
+    btn.onclick = () => {
+      d.answers[q.id] = btn.dataset.value;
+      delete d.detected[q.id];
+      d.manualOrder.push(q.id);
+      render();
+    };
+  });
+  wireAnswerChipEdits(d);
+}
+
+// Shared between screenPerguntas (partial answers so far) and renderThemeStep
+// (final review, once all six are answered) — same markup, same edit wiring.
+function renderAnswerChips(d) {
+  const answeredIds = QUESTIONS.filter((qq) => d.answers[qq.id] !== undefined).map((qq) => qq.id);
+  if (!answeredIds.length) return "";
+  return `<div class="detect-summary">` + answeredIds.map((id) => {
+    const qq = QUESTIONS.find((x) => x.id === id);
+    return `<div class="detect-chip">${ICONS.check.replace('<svg', '<svg class="ok"')}<div class="detect-chip-text"><span class="detect-chip-label">${qq.title.replace(/\?$/, "")}: </span><span class="detect-chip-value">${optLabel(id, d.answers[id])}</span>${d.detected[id] ? ' <span style="color:var(--ink-faint)">· detectado automaticamente</span>' : ""}</div><button class="detect-edit" data-editid="${id}">${ICONS.pencil} editar</button></div>`;
+  }).join("") + `</div>`;
+}
+function wireAnswerChipEdits(d) {
+  document.querySelectorAll(".detect-edit").forEach((btn) => {
+    btn.onclick = () => {
+      const id = btn.dataset.editid;
+      delete d.answers[id];
+      delete d.detected[id];
+      const idx = d.manualOrder.indexOf(id);
+      if (idx >= 0) d.manualOrder.splice(idx, 1);
+      render();
+    };
+  });
+}
+
+function renderThemeStep() {
+  const d = state.draft;
+  mount(`
+    <div class="topbar">
+      <div class="topbar-row">
+        <button class="iconbtn" id="btnBack">${ICONS.back}</button>
+        <div>
+          <div class="topbar-title">Ocorrência Social / Discriminação</div>
+          <div class="step-label">Última etapa da triagem</div>
+        </div>
+      </div>
+      <div class="progress-track"><div class="progress-fill" style="width:100%"></div></div>
+    </div>
+    <div class="content">
+      <div class="section-title">Confira antes de continuar</div>
+      ${renderAnswerChips(d)}
+      ${d.themesDetected ? `<div class="helper">${ICONS.info}<div class="helper-text">Identificamos estes temas no seu relato. Toque para ajustar se necessário.</div></div>` : ""}
+      <div class="q-title">Quais temas foram abordados na ocorrência?</div>
+      <div class="q-sub">Selecione uma ou mais opções.</div>
+      <div class="chip-wrap" id="themeChips">
+        ${THEMES.map((th) => `<button class="chip-toggle ${d.themes.includes(th.value) ? "selected" : ""}" data-value="${th.value}">${th.label}</button>`).join("")}
+      </div>
+      <button class="btn btn-primary" id="btnThemeContinuar" style="margin-top:14px;">Continuar ${ICONS.arrowRight}</button>
+    </div>
+  `);
+  document.getElementById("btnBack").onclick = () => {
+    if (d.manualOrder.length > 0) {
+      const lastId = d.manualOrder.pop();
+      delete d.answers[lastId];
+      delete d.detected[lastId];
+    }
+    render();
+  };
+  wireAnswerChipEdits(d);
+  document.querySelectorAll("#themeChips .chip-toggle").forEach((btn) => {
+    btn.onclick = () => {
+      const v = btn.dataset.value;
+      const i = d.themes.indexOf(v);
+      if (i >= 0) d.themes.splice(i, 1); else d.themes.push(v);
+      btn.classList.toggle("selected");
+    };
+  });
+  document.getElementById("btnThemeContinuar").onclick = () => {
+    state._themeAsked = true;
+    render();
+  };
+}
+
+function screenEvidencias() {
+  const d = state.draft;
+  mount(`
+    <div class="topbar">
+      <div class="topbar-row">
+        <button class="iconbtn" id="btnBack">${ICONS.back}</button>
+        <div>
+          <div class="topbar-title">Evidências</div>
+          <div class="step-label">Ocorrência Social · Criticidade ${LEVEL_LABEL[d.criticality]}</div>
+        </div>
+      </div>
+    </div>
+    <div class="content">
+      <div class="secure">
+        <div class="secure-icon">${ICONS.lock}</div>
+        <div><div class="secure-title">Evidências ficam neste dispositivo</div>
+        <div class="secure-desc">Sem um backend do CCO conectado, os arquivos anexados aqui ficam salvos apenas nesta sessão do navegador — não são enviados a nenhum servidor. Ao integrar com o R.O. oficial, esta etapa passa a criar a pasta segura automaticamente.</div></div>
+      </div>
+      <label class="upload-area" for="fileInput" style="cursor:pointer;">
+        ${ICONS.camera}
+        <div class="upload-title">Toque para adicionar foto ou vídeo</div>
+        <div class="upload-sub">Você também pode selecionar da galeria</div>
+      </label>
+      <input type="file" id="fileInput" accept="image/*,video/*" multiple style="display:none;">
+      <div id="fileList" style="display:flex; flex-direction:column; gap:10px;"></div>
+      <button class="btn btn-primary" id="btnEvContinuar">Continuar ${ICONS.arrowRight}</button>
+      <button class="btn-text" id="btnEvSkip">Pular esta etapa</button>
+    </div>
+  `);
+  document.getElementById("btnBack").onclick = () => { state._themeAsked = false; state.screen = "perguntas"; render(); };
+  renderFileList();
+  document.getElementById("fileInput").addEventListener("change", (e) => {
+    Array.from(e.target.files).forEach((f) => {
+      const url = URL.createObjectURL(f);
+      d.evidence.push({ name: f.name, size: f.size, type: f.type, url });
+    });
+    d.criticality = computeCriticality(d);
+    renderFileList();
+  });
+  function renderFileList() {
+    const list = document.getElementById("fileList");
+    list.innerHTML = d.evidence.map((f, i) => `
+      <div class="file-item">
+        <div class="file-thumb">${f.type.startsWith("image/") ? `<img src="${f.url}">` : ICONS.camera}</div>
+        <div class="file-text"><div class="file-name">${escapeHtml(f.name)}</div><div class="file-meta">${(f.size / 1024).toFixed(0)} KB</div></div>
+        <button class="file-remove" data-i="${i}">${ICONS.trash}</button>
+      </div>`).join("");
+    list.querySelectorAll(".file-remove").forEach((btn) => {
+      btn.onclick = () => { d.evidence.splice(Number(btn.dataset.i), 1); d.criticality = computeCriticality(d); renderFileList(); };
+    });
+  }
+  const goRevisao = () => {
+    const meta = {
+      protocol: genProtocol(), store: "Loja 0234", operator: "Operadora Ana Paula",
+      dateLabel: fmtDate(new Date().toISOString()), criticality: d.criticality,
+    };
+    d._meta = meta;
+    d.reportText = generateReport(d, meta);
+    state.screen = "revisao";
+    render();
+  };
+  document.getElementById("btnEvContinuar").onclick = goRevisao;
+  document.getElementById("btnEvSkip").onclick = goRevisao;
+}
+
+function screenRevisao() {
+  const d = state.draft;
+  mount(`
+    <div class="topbar">
+      <div class="topbar-row">
+        <button class="iconbtn" id="btnBack">${ICONS.back}</button>
+        <div>
+          <div class="topbar-title">Revisar relato</div>
+          <div class="step-label">Confira o texto organizado antes de enviar</div>
+        </div>
+      </div>
+    </div>
+    <div class="content">
+      <div class="helper">${ICONS.info}<div class="helper-text">Organizamos suas respostas e ajustamos a redação da narrativa. Você pode editar livremente antes de enviar.</div></div>
+      <div class="report-box"><textarea id="reportText">${escapeHtml(d.reportText)}</textarea></div>
+      <div class="edit-note">${ICONS.pencil} Texto totalmente editável</div>
+      <button class="btn btn-primary" id="btnEnviar">Confirmar e enviar ${ICONS.arrowRight}</button>
+    </div>
+  `);
+  document.getElementById("btnBack").onclick = () => { state.screen = "evidencias"; render(); };
+  const ta = document.getElementById("reportText");
+  ta.addEventListener("input", () => { d.reportText = ta.value; });
+  document.getElementById("btnEnviar").onclick = () => {
+    d.reportText = ta.value;
+    const occ = {
+      id: "occ_" + Date.now(),
+      protocol: d._meta.protocol,
+      createdAt: new Date().toISOString(),
+      store: d._meta.store,
+      operator: d._meta.operator,
+      criticality: d.criticality,
+      answers: d.answers,
+      themes: d.themes,
+      narrativeRaw: d.narrativeRaw,
+      reportText: d.reportText,
+      evidence: d.evidence.map((f) => ({ name: f.name, size: f.size, type: f.type })),
+      status: "Registrada na loja",
+    };
+    state.occurrences.push(occ);
+    saveOccurrences(state.occurrences);
+    state.detailId = occ.id;
+    state.screen = "confirmacao";
+    render();
+  };
+}
+
+function screenConfirmacao() {
+  const o = state.occurrences.find((x) => x.id === state.detailId);
+  mount(`
+    <div class="content center-col">
+      <div class="check-circle"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div>
+      <div class="headline">Ocorrência registrada com sucesso</div>
+      <div class="subtext">O relato foi salvo neste dispositivo. Em produção, este seria o ponto de envio automático ao CCO Central.</div>
+      <div class="proto-card">
+        <div class="proto-row"><div><div class="proto-label">Protocolo</div><div class="proto-value">${o.protocol}</div></div></div>
+        <div class="divider"></div>
+        <div class="crit-chip ${o.criticality}" style="width:fit-content;"><div class="crit-dot"></div><div class="crit-text"><div class="crit-level">Criticidade ${LEVEL_LABEL[o.criticality]}</div></div></div>
+        <div class="info-grid">
+          <div class="info-item"><div class="info-label">Registrado em</div><div class="info-value">${fmtDate(o.createdAt)}</div></div>
+          <div class="info-item"><div class="info-label">Loja</div><div class="info-value">${o.store}</div></div>
+          <div class="info-item"><div class="info-label">Evidências</div><div class="info-value">${o.evidence.length} arquivo(s)</div></div>
+          <div class="info-item"><div class="info-label">Status</div><div class="info-value">${o.status}</div></div>
+        </div>
+      </div>
+      <button class="btn btn-primary" id="btnVerDetalhe" style="width:100%; margin-top:16px;">Ver relato completo</button>
+      <button class="btn-text" id="btnHome">Voltar ao início</button>
+    </div>
+  `);
+  document.getElementById("btnVerDetalhe").onclick = () => { state.screen = "detalhe"; render(); };
+  document.getElementById("btnHome").onclick = () => { state.draft = null; state.screen = "home"; render(); };
+}
+
+/* ============================= ROUTER ============================= */
+function render() {
+  const s = state.screen;
+  if (s === "home") return screenHome();
+  if (s === "minhas") return screenMinhas();
+  if (s === "detalhe") return screenDetalhe();
+  if (s === "narrativa") return screenNarrativa();
+  if (s === "perguntas") return screenPerguntas();
+  if (s === "evidencias") return screenEvidencias();
+  if (s === "revisao") return screenRevisao();
+  if (s === "confirmacao") return screenConfirmacao();
+}
+render();
+</script>
