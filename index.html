@@ -2203,6 +2203,8 @@ function render() {
   document.getElementById("shell").classList.toggle("shell-wide", s === "dashboard");
   if (s === "boot") return screenBoot();
   if (s === "login") return screenLogin();
+  if (s === "cadastro") return screenCadastro();
+  if (s === "cadastroLoja") return screenCadastroLoja();
   if (s === "home") return screenHome();
   if (s === "minhas") return screenMinhas();
   if (s === "detalhe") return screenDetalhe();
@@ -2239,11 +2241,22 @@ async function loadStoreAndGo() {
     return;
   }
 
-  const { data: storeRow, error } = await sb.from("stores").select("*").maybeSingle();
-  if (error || !storeRow) {
-    showToast("Este login não está vinculado a nenhuma loja ou papel de staff.");
+  // Filtered explicitly by the caller's own id (not just left to RLS) —
+  // since self-registration made unclaimed stores visible to any logged-in
+  // account too, an unfiltered select() here could match many rows instead
+  // of just this user's own and error out on .maybeSingle().
+  const { data: storeRow, error } = await sb.from("stores").select("*").eq("auth_user_id", state.session.user.id).maybeSingle();
+  if (error) {
+    showToast("Erro ao carregar sua loja: " + error.message);
     await sb.auth.signOut();
     state.screen = "login";
+    render();
+    return;
+  }
+  if (!storeRow) {
+    // Account exists (signed up, possibly even email-confirmed) but never
+    // finished picking a store — resume registration instead of dead-ending.
+    state.screen = "cadastroLoja";
     render();
     return;
   }
@@ -2279,6 +2292,7 @@ function screenLogin() {
       </div>
       <button class="btn btn-primary" id="btnLogin">Entrar</button>
       <div class="q-sub" id="loginError" style="color:var(--red); text-align:center;"></div>
+      <button class="btn-text" id="btnIrCadastro" style="align-self:center;">Ainda não tem conta? Cadastre sua loja</button>
     </div>
   `);
   const emailInput = document.getElementById("loginEmail");
@@ -2304,6 +2318,126 @@ function screenLogin() {
   };
   btnLogin.onclick = doLogin;
   passInput.addEventListener("keydown", (e) => { if (e.key === "Enter") doLogin(); });
+  document.getElementById("btnIrCadastro").onclick = () => { state.screen = "cadastro"; render(); };
+}
+
+function screenCadastro() {
+  mount(`
+    <div class="content" style="flex:1; justify-content:center; gap:20px;">
+      <div style="text-align:center; display:flex; flex-direction:column; align-items:center; gap:10px;">
+        <div class="logo">${ICONS.shield}</div>
+        <div class="topbar-title" style="font-size:19px;">Criar conta</div>
+        <div class="q-sub">Cadastre o login da sua loja</div>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:10px;">
+        <input type="email" id="regEmail" placeholder="E-mail" style="padding:13px 14px; border:1.5px solid var(--border); border-radius:12px; font-size:14px;">
+        <input type="password" id="regPassword" placeholder="Senha (mínimo 6 caracteres)" style="padding:13px 14px; border:1.5px solid var(--border); border-radius:12px; font-size:14px;">
+        <input type="password" id="regPasswordConfirm" placeholder="Confirmar senha" style="padding:13px 14px; border:1.5px solid var(--border); border-radius:12px; font-size:14px;">
+      </div>
+      <button class="btn btn-primary" id="btnCadastrar">Criar conta</button>
+      <div class="q-sub" id="regError" style="color:var(--red); text-align:center;"></div>
+      <button class="btn-text" id="btnVoltarLogin" style="align-self:center;">Já tem conta? Entrar</button>
+    </div>
+  `);
+  const emailInput = document.getElementById("regEmail");
+  const passInput = document.getElementById("regPassword");
+  const passConfirmInput = document.getElementById("regPasswordConfirm");
+  const btnCadastrar = document.getElementById("btnCadastrar");
+  const errEl = document.getElementById("regError");
+  document.getElementById("btnVoltarLogin").onclick = () => { state.screen = "login"; render(); };
+  btnCadastrar.onclick = async () => {
+    errEl.textContent = "";
+    const email = emailInput.value.trim();
+    const password = passInput.value;
+    if (!email) { errEl.textContent = "Informe um e-mail."; return; }
+    if (password.length < 6) { errEl.textContent = "A senha precisa ter pelo menos 6 caracteres."; return; }
+    if (password !== passConfirmInput.value) { errEl.textContent = "As senhas não são iguais."; return; }
+    btnCadastrar.disabled = true;
+    btnCadastrar.textContent = "Criando conta…";
+    const { data, error } = await sb.auth.signUp({ email, password });
+    if (error) {
+      errEl.textContent = error.message.includes("already registered") ? "Este e-mail já tem uma conta." : "Erro ao criar conta: " + error.message;
+      btnCadastrar.disabled = false;
+      btnCadastrar.textContent = "Criar conta";
+      return;
+    }
+    if (!data.session) {
+      showToast("Conta criada! Confirme seu e-mail e depois faça login.");
+      state.screen = "login";
+      render();
+      return;
+    }
+    state.session = data.session;
+    state.screen = "cadastroLoja";
+    render();
+  };
+}
+
+function screenCadastroLoja() {
+  mount(`
+    <div class="topbar">
+      <div class="topbar-row">
+        <div>
+          <div class="topbar-title">Qual é a sua loja?</div>
+          <div class="step-label">Escolha a loja que este login vai representar</div>
+        </div>
+      </div>
+    </div>
+    <div class="content">
+      <input type="text" id="storeSearch" placeholder="Buscar por nome ou código…" style="padding:12px 14px; border:1.5px solid var(--border); border-radius:12px; font-size:13.5px;">
+      <div id="storeListWrap" class="empty-note">Carregando lojas…</div>
+      <button class="btn-text" id="btnSairCadastro" style="align-self:center;">Sair</button>
+    </div>
+  `);
+  document.getElementById("btnSairCadastro").onclick = async () => {
+    await sb.auth.signOut();
+    state.session = null;
+    state.screen = "login";
+    render();
+  };
+
+  (async () => {
+    // Only stores nobody has claimed yet — matches the RLS policy, and
+    // keeps someone from accidentally picking an already-active store.
+    const { data: stores, error } = await sb.from("stores").select("id,name,code,type").is("auth_user_id", null).order("code");
+    const wrap = document.getElementById("storeListWrap");
+    if (error) { wrap.textContent = "Erro ao carregar lojas: " + error.message; return; }
+    if (!stores || stores.length === 0) { wrap.textContent = "Todas as lojas já têm login cadastrado. Fale com o CCO."; return; }
+
+    const renderList = (filterText) => {
+      const f = (filterText || "").toLowerCase();
+      const filtered = stores.filter((s) => !f || s.name.toLowerCase().includes(f) || s.code.toLowerCase().includes(f));
+      wrap.className = "";
+      wrap.innerHTML = filtered.length === 0 ? `<div class="empty-note">Nenhuma loja encontrada.</div>` :
+        `<div style="display:flex; flex-direction:column; gap:8px;">` + filtered.slice(0, 60).map((s) => `
+          <button class="occ-item" data-store-id="${s.id}">
+            <div class="occ-text">
+              <div class="occ-proto">${escapeHtml(s.name)}</div>
+              <div class="occ-status">${escapeHtml(s.code)} · ${STORE_TYPE_LABELS[s.type] || s.type}</div>
+            </div>
+            ${ICONS.chevronRight}
+          </button>`).join("") + `</div>`;
+      wrap.querySelectorAll("[data-store-id]").forEach((btn) => {
+        btn.onclick = async () => {
+          btn.disabled = true;
+          // A store claimed by someone else a moment earlier fails the RLS
+          // `using` clause silently — no error, just zero rows matched — so
+          // .select() is required here to tell "claimed" apart from success.
+          const { data: claimed, error: claimError } = await sb.from("stores").update({ auth_user_id: state.session.user.id }).eq("id", btn.dataset.storeId).select();
+          if (claimError || !claimed || claimed.length === 0) {
+            showToast("Essa loja acabou de ser cadastrada por outra pessoa. Escolha outra.");
+            const staleIdx = stores.findIndex((s) => s.id === btn.dataset.storeId);
+            if (staleIdx >= 0) stores.splice(staleIdx, 1);
+            renderList(document.getElementById("storeSearch").value);
+            return;
+          }
+          await loadStoreAndGo();
+        };
+      });
+    };
+    renderList("");
+    document.getElementById("storeSearch").addEventListener("input", (e) => renderList(e.target.value));
+  })();
 }
 
 boot();
