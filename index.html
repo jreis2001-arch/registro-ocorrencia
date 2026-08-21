@@ -2427,6 +2427,7 @@ function screenLogin() {
         <input type="email" id="loginEmail" placeholder="E-mail" style="padding:13px 14px; border:1.5px solid var(--border); border-radius:12px; font-size:14px;">
         <input type="password" id="loginPassword" placeholder="Senha" style="padding:13px 14px; border:1.5px solid var(--border); border-radius:12px; font-size:14px;">
       </div>
+      <div id="turnstileWidgetLogin" style="display:flex; justify-content:center;"></div>
       <button class="btn btn-primary" id="btnLogin">Entrar</button>
       <div class="q-sub" id="loginError" style="color:var(--red); text-align:center;"></div>
       <button class="btn-text" id="btnIrCadastro" style="align-self:center;">Ainda não tem conta? Cadastre sua loja</button>
@@ -2436,18 +2437,44 @@ function screenLogin() {
   const passInput = document.getElementById("loginPassword");
   const btnLogin = document.getElementById("btnLogin");
   const errEl = document.getElementById("loginError");
+
+  // Supabase's CAPTCHA protection covers every auth endpoint, sign-in
+  // included — without a token here, a correct password still gets
+  // rejected server-side (as "captcha_failed"), which used to get masked
+  // by the generic "wrong password" message below.
+  let turnstileToken = "";
+  let turnstileWidgetId = null;
+  function renderTurnstile() {
+    if (typeof turnstile === "undefined") { setTimeout(renderTurnstile, 300); return; }
+    turnstileWidgetId = turnstile.render("#turnstileWidgetLogin", {
+      sitekey: TURNSTILE_SITE_KEY,
+      callback: (token) => { turnstileToken = token; },
+      "expired-callback": () => { turnstileToken = ""; },
+      "error-callback": () => { turnstileToken = ""; },
+    });
+  }
+  renderTurnstile();
+
   const doLogin = async () => {
     errEl.textContent = "";
+    if (!turnstileToken) { errEl.textContent = "Confirme a verificação de segurança acima."; return; }
     btnLogin.disabled = true;
     btnLogin.textContent = "Entrando…";
     const { data, error } = await sb.auth.signInWithPassword({
       email: emailInput.value.trim(),
       password: passInput.value,
+      options: { captchaToken: turnstileToken },
     });
     if (error) {
-      errEl.textContent = "Login ou senha incorretos.";
+      // captcha_failed and other non-credential errors shouldn't be
+      // reported to the user as "wrong password" — that sent at least one
+      // real password-reset down a dead end chasing the wrong cause.
+      errEl.textContent = error.code === "captcha_failed" || error.code === "over_request_rate_limit"
+        ? "Erro de verificação: " + error.message
+        : "Login ou senha incorretos.";
       btnLogin.disabled = false;
       btnLogin.textContent = "Entrar";
+      if (typeof turnstile !== "undefined" && turnstileWidgetId !== null) { turnstile.reset(turnstileWidgetId); turnstileToken = ""; }
       return;
     }
     state.session = data.session;
