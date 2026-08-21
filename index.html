@@ -2279,6 +2279,7 @@ function render() {
   if (s === "cadastro") return screenCadastro();
   if (s === "cadastroLoja") return screenCadastroLoja();
   if (s === "aguardandoAprovacao") return screenAguardandoAprovacao();
+  if (s === "redefinirSenha") return screenRedefinirSenha();
   if (s === "aprovacoes") return screenAprovacoes();
   if (s === "home") return screenHome();
   if (s === "minhas") return screenMinhas();
@@ -2351,8 +2352,23 @@ async function loadStoreAndGo() {
   render();
 }
 
+// A password-recovery link logs the user in via a one-time token in the URL
+// and fires this event — caught here (before boot()'s own getSession() call
+// resolves) so we route to the reset-password screen instead of dropping
+// them straight into the dashboard with no chance to set a new password.
+let handledRecovery = false;
+sb.auth.onAuthStateChange((event, session) => {
+  if (event === "PASSWORD_RECOVERY") {
+    handledRecovery = true;
+    state.session = session;
+    state.screen = "redefinirSenha";
+    render();
+  }
+});
+
 async function boot() {
   const { data: { session } } = await sb.auth.getSession();
+  if (handledRecovery) return;
   if (session) {
     state.session = session;
     await loadStoreAndGo();
@@ -2360,6 +2376,45 @@ async function boot() {
     state.screen = "login";
     render();
   }
+}
+
+function screenRedefinirSenha() {
+  mount(`
+    <div class="content" style="flex:1; justify-content:center; gap:20px;">
+      <div style="text-align:center; display:flex; flex-direction:column; align-items:center; gap:10px;">
+        <div class="logo">${ICONS.shield}</div>
+        <div class="topbar-title" style="font-size:19px;">Definir nova senha</div>
+        <div class="q-sub">Escolha uma senha nova para sua conta.</div>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:10px;">
+        <input type="password" id="novaSenha" placeholder="Nova senha (mínimo 8 caracteres)" style="padding:13px 14px; border:1.5px solid var(--border); border-radius:12px; font-size:14px;">
+        <input type="password" id="novaSenhaConfirm" placeholder="Confirmar nova senha" style="padding:13px 14px; border:1.5px solid var(--border); border-radius:12px; font-size:14px;">
+      </div>
+      <button class="btn btn-primary" id="btnSalvarSenha">Salvar nova senha</button>
+      <div class="q-sub" id="senhaError" style="color:var(--red); text-align:center;"></div>
+    </div>
+  `);
+  const senhaInput = document.getElementById("novaSenha");
+  const senhaConfirmInput = document.getElementById("novaSenhaConfirm");
+  const btn = document.getElementById("btnSalvarSenha");
+  const errEl = document.getElementById("senhaError");
+  btn.onclick = async () => {
+    errEl.textContent = "";
+    const senha = senhaInput.value;
+    if (senha.length < 8) { errEl.textContent = "A senha precisa ter pelo menos 8 caracteres."; return; }
+    if (senha !== senhaConfirmInput.value) { errEl.textContent = "As senhas não são iguais."; return; }
+    btn.disabled = true;
+    btn.textContent = "Salvando…";
+    const { error } = await sb.auth.updateUser({ password: senha });
+    if (error) {
+      errEl.textContent = "Erro ao salvar: " + error.message;
+      btn.disabled = false;
+      btn.textContent = "Salvar nova senha";
+      return;
+    }
+    showToast("Senha atualizada com sucesso!");
+    await loadStoreAndGo();
+  };
 }
 
 function screenLogin() {
