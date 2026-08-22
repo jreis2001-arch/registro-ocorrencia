@@ -1081,6 +1081,13 @@ function fmtDate(iso) {
   const d = new Date(iso);
   return d.toLocaleDateString("pt-BR") + " · " + d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
+// Local calendar date (not toISOString(), which is UTC-based and can show
+// "tomorrow" during the evening in Brazil's UTC-3) — used to cap "data do
+// fato" so an occurrence can't be logged as happening in the future.
+function todayLocalDateStr() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
 
 /* ============================= SCREENS ============================= */
 function screenHome() {
@@ -1459,7 +1466,7 @@ function screenDataFato() {
       <div class="q-title">Quando aconteceu?</div>
       <div class="field-group">
         <div class="field-label">Data que a ocorrência aconteceu <span class="req">*</span></div>
-        <input type="date" id="fatoData" class="field-input" value="${d.incidentDate}">
+        <input type="date" id="fatoData" class="field-input" value="${d.incidentDate}" max="${todayLocalDateStr()}">
       </div>
       <div class="field-group">
         <div class="field-label">Horário aproximado</div>
@@ -1473,6 +1480,9 @@ function screenDataFato() {
   document.getElementById("fatoHora").addEventListener("input", (e) => { d.incidentTime = e.target.value; });
   document.getElementById("btnContinuar").onclick = () => {
     if (!d.incidentDate) { showToast("Informe a data em que a ocorrência aconteceu."); return; }
+    // The `max` attribute stops the date picker UI, but not manual typing
+    // or a pasted value — enforce it here too before letting the draft move on.
+    if (d.incidentDate > todayLocalDateStr()) { showToast("A data do fato não pode ser no futuro."); return; }
     state.screen = "formDinamico";
     render();
   };
