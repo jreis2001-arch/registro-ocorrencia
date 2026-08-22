@@ -405,6 +405,14 @@ async function fetchPendingStores() {
   return data;
 }
 
+// Staff-only: occurrence deletion requests still awaiting approval or
+// rejection — a store's own pre-exclusão never deletes anything by itself.
+async function fetchPendingDeletions() {
+  const { data, error } = await sb.from("occurrence_deletion_requests").select("*, store:stores(name,code)").eq("status", "pendente").order("requested_at");
+  if (error) { showToast("Erro ao carregar exclusões pendentes: " + error.message); return []; }
+  return data;
+}
+
 /* ============================= STATE ============================= */
 const BRAZIL_MAP_SVG = `<svg version="1.1" id="brazil-map" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" viewBox="0 0 353.845 367.766" enable-background="new 0 0 353.845 367.766"
      xml:space="preserve">
@@ -929,6 +937,7 @@ let state = {
   role: null,               // "store" | "staff", set right after login
   dashRows: [],              // staff dashboard: raw occurrences joined with store info
   pendingStores: [],         // staff-only: stores self-registered but not yet approved
+  pendingDeletions: [],      // staff-only: occurrence deletion requests awaiting approval
   // statusMode: "todos" (padrão, mostra tudo em turquesa) | "ALTA" | "MEDIA" | "BAIXA"
   dashFilters: { statusMode: "todos", region: "todos", uf: "todos", storeType: "todos" },
   chatStoreId: null,
@@ -1170,7 +1179,22 @@ function screenHome() {
           </div>
           ${ICONS.chevronRight}
         </button>
-      ` : ""}
+        <button class="occ-item" id="btnExclusoesPendentes" style="margin-bottom:4px;">
+          <div class="occ-text">
+            <div class="occ-proto">Exclusões pendentes</div>
+            <div class="occ-status">${state.pendingDeletions.length} solicitação(ões) aguardando aprovação</div>
+          </div>
+          ${ICONS.chevronRight}
+        </button>
+      ` : `
+        <button class="occ-item" id="btnSolicitarExclusao" style="margin-bottom:4px;">
+          <div class="occ-text">
+            <div class="occ-proto">Solicitar exclusão de ocorrência</div>
+            <div class="occ-status">Pedido de exclusão precisa ser aprovado pelo CCO</div>
+          </div>
+          ${ICONS.chevronRight}
+        </button>
+      `}
 
       <div class="section-title">${isStaff ? "Maiores riscos (todas as lojas)" : "Maiores riscos"}</div>
       ${recent.length === 0 ? `<div class="empty-note">Nenhuma ocorrência registrada ainda.</div>` :
@@ -1187,6 +1211,9 @@ function screenHome() {
   if (isStaff) {
     document.getElementById("btnCadastrosPendentes").onclick = () => { state.screen = "aprovacoes"; render(); };
     document.getElementById("btnOrientacoes").onclick = () => { state.screen = "orientacoes"; render(); };
+    document.getElementById("btnExclusoesPendentes").onclick = () => { state.screen = "exclusoes"; render(); };
+  } else {
+    document.getElementById("btnSolicitarExclusao").onclick = () => { state.screen = "solicitarExclusao"; render(); };
   }
   document.getElementById("btnLogout").onclick = async () => {
     await sb.auth.signOut();
@@ -2405,6 +2432,8 @@ function render() {
   if (s === "aguardandoAprovacao") return screenAguardandoAprovacao();
   if (s === "redefinirSenha") return screenRedefinirSenha();
   if (s === "aprovacoes") return screenAprovacoes();
+  if (s === "solicitarExclusao") return screenSolicitarExclusao();
+  if (s === "exclusoes") return screenExclusoesPendentes();
   if (s === "orientacoes") return screenOrientacoes();
   if (s === "orientacao") return screenOrientacao();
   if (s === "home") return screenHome();
@@ -2439,6 +2468,7 @@ async function loadStoreAndGo() {
     state.occurrences = await fetchOccurrences();
     await loadDashboardData();
     state.pendingStores = await fetchPendingStores();
+    state.pendingDeletions = await fetchPendingDeletions();
     state.screen = "dashboard";
     render();
     return;
@@ -3030,6 +3060,143 @@ function screenOrientacao() {
     cb.addEventListener("change", (e) => { d.guidanceChecked[cb.dataset.stepId] = e.target.checked; });
   });
   document.getElementById("btnContinuarOrientacao").onclick = () => { state.screen = "dataFato"; render(); };
+}
+
+// Store-only: request deletion of one of the store's own occurrences. This
+// never deletes anything by itself — it just files a request a staff has
+// to approve. The protocol + date are checked against a real occurrence
+// belonging to this store before the request is even created, so a typo
+// (or someone fishing for another store's protocol) fails immediately
+// rather than landing an unreviewable request in the staff queue.
+function screenSolicitarExclusao() {
+  mount(`
+    <div class="topbar">
+      <div class="topbar-row">
+        <button class="iconbtn" id="btnBack">${ICONS.back}</button>
+        <div class="topbar-title">Solicitar exclusão de ocorrência</div>
+      </div>
+    </div>
+    <div class="content">
+      <div class="helper">${ICONS.info}<div class="helper-text">O pedido fica pendente até o CCO aprovar. A ocorrência só é excluída de fato depois da aprovação.</div></div>
+      <div class="field-group">
+        <div class="field-label">Código da ocorrência (protocolo) <span class="req">*</span></div>
+        <input type="text" id="delProtocol" class="field-input" placeholder="Ex.: RO-2026-123456">
+      </div>
+      <div class="field-group">
+        <div class="field-label">Data da ocorrência <span class="req">*</span></div>
+        <input type="date" id="delData" class="field-input">
+      </div>
+      <div class="field-group">
+        <div class="field-label">Loja</div>
+        <div class="field-static">${escapeHtml(state.store.name)} · ${escapeHtml(state.store.code)}</div>
+      </div>
+      <div class="field-group">
+        <div class="field-label">Motivo <span class="req">*</span></div>
+        <textarea id="delMotivo" class="field-input" placeholder="Explique o motivo da exclusão…" style="min-height:90px;"></textarea>
+      </div>
+      <button class="btn btn-primary" id="btnEnviarExclusao">Enviar solicitação</button>
+    </div>
+  `);
+  document.getElementById("btnBack").onclick = () => { state.screen = "home"; render(); };
+  document.getElementById("btnEnviarExclusao").onclick = async () => {
+    const protocol = document.getElementById("delProtocol").value.trim();
+    const dataFato = document.getElementById("delData").value;
+    const motivo = document.getElementById("delMotivo").value.trim();
+    if (!protocol || !dataFato || !motivo) { showToast("Preencha todos os campos."); return; }
+
+    const btn = document.getElementById("btnEnviarExclusao");
+    btn.disabled = true;
+    btn.textContent = "Enviando…";
+
+    const { data: occ, error: occErr } = await sb.from("occurrences").select("id, incident_date").eq("protocol", protocol).eq("store_id", state.store.id).maybeSingle();
+    if (occErr || !occ) {
+      showToast("Ocorrência não encontrada com esse código para esta loja.");
+      btn.disabled = false; btn.textContent = "Enviar solicitação";
+      return;
+    }
+    if (occ.incident_date !== dataFato) {
+      showToast("A data informada não corresponde à data registrada nessa ocorrência.");
+      btn.disabled = false; btn.textContent = "Enviar solicitação";
+      return;
+    }
+
+    const { error } = await sb.from("occurrence_deletion_requests").insert({
+      occurrence_id: occ.id,
+      protocol,
+      store_id: state.store.id,
+      incident_date: dataFato,
+      reason: motivo,
+      requested_by: state.session.user.email,
+    });
+    if (error) { showToast("Erro ao enviar: " + error.message); btn.disabled = false; btn.textContent = "Enviar solicitação"; return; }
+    showToast("Solicitação de exclusão enviada. Aguarde a aprovação do CCO.");
+    state.screen = "home";
+    render();
+  };
+}
+
+// Staff-only: approve (which deletes the occurrence for real) or reject a
+// pending exclusão request. Rejecting just marks the request closed —
+// the occurrence is untouched either way until an explicit approval.
+function screenExclusoesPendentes() {
+  mount(`
+    <div class="topbar">
+      <div class="topbar-row">
+        <button class="iconbtn" id="btnBack">${ICONS.back}</button>
+        <div class="topbar-title">Exclusões pendentes</div>
+      </div>
+    </div>
+    <div class="content" id="exclusoesWrap"></div>
+    ${bottomNav("home")}
+  `);
+  document.getElementById("btnBack").onclick = () => { state.screen = "home"; render(); };
+  wireNav();
+  renderList();
+
+  function renderList() {
+    const wrap = document.getElementById("exclusoesWrap");
+    const pending = state.pendingDeletions || [];
+    wrap.innerHTML = pending.length === 0 ? `<div class="empty-note">Nenhuma solicitação pendente.</div>` :
+      pending.map((r) => `
+        <div class="card" style="margin-bottom:10px;">
+          <div style="font-weight:600; font-size:14px;">${escapeHtml(r.protocol)}</div>
+          <div style="font-size:12.5px; color:var(--ink-soft); margin-bottom:6px;">${escapeHtml(r.store ? r.store.name : "—")} · Data do fato: ${r.incident_date ? new Date(r.incident_date + "T00:00:00").toLocaleDateString("pt-BR") : "—"}</div>
+          <div style="font-size:13px; color:var(--ink); margin-bottom:10px;"><strong>Motivo:</strong> ${escapeHtml(r.reason)}</div>
+          <div style="display:flex; gap:10px;">
+            <button class="btn btn-primary" data-approve="${r.id}" style="flex:1;">Aprovar e excluir</button>
+            <button class="btn-text" data-reject="${r.id}" style="color:var(--red);">Rejeitar</button>
+          </div>
+        </div>
+      `).join("");
+
+    wrap.querySelectorAll("[data-approve]").forEach((btn) => {
+      btn.onclick = async () => {
+        if (!confirm("Tem certeza? A ocorrência será excluída definitivamente, junto com as evidências anexadas.")) return;
+        btn.disabled = true;
+        const req = pending.find((r) => r.id === btn.dataset.approve);
+        if (req.occurrence_id) {
+          const { error: delErr } = await sb.from("occurrences").delete().eq("id", req.occurrence_id);
+          if (delErr) { showToast("Erro ao excluir a ocorrência: " + delErr.message); btn.disabled = false; return; }
+        }
+        const { error } = await sb.from("occurrence_deletion_requests").update({ status: "aprovada", reviewed_at: new Date().toISOString() }).eq("id", req.id);
+        if (error) { showToast("Erro ao atualizar a solicitação: " + error.message); btn.disabled = false; return; }
+        showToast("Ocorrência excluída.");
+        state.pendingDeletions = await fetchPendingDeletions();
+        state.occurrences = await fetchOccurrences();
+        renderList();
+      };
+    });
+    wrap.querySelectorAll("[data-reject]").forEach((btn) => {
+      btn.onclick = async () => {
+        btn.disabled = true;
+        const { error } = await sb.from("occurrence_deletion_requests").update({ status: "rejeitada", reviewed_at: new Date().toISOString() }).eq("id", btn.dataset.reject);
+        if (error) { showToast("Erro ao rejeitar: " + error.message); btn.disabled = false; return; }
+        showToast("Solicitação rejeitada.");
+        state.pendingDeletions = await fetchPendingDeletions();
+        renderList();
+      };
+    });
+  }
 }
 
 boot();
