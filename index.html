@@ -3201,6 +3201,7 @@ function screenExclusoesPendentes() {
         const { error } = await sb.from("occurrence_deletion_requests").update({ status: "aprovada", reviewed_at: new Date().toISOString(), review_message: message || null }).eq("id", req.id);
         if (error) { showToast("Erro ao atualizar a solicitação: " + error.message); btn.disabled = false; return; }
         showToast("Ocorrência excluída.");
+        await notifyRequester(req, "aprovada", message);
         state.pendingDeletions = await fetchPendingDeletions();
         state.occurrences = await fetchOccurrences();
         renderList();
@@ -3210,13 +3211,26 @@ function screenExclusoesPendentes() {
       btn.onclick = async () => {
         btn.disabled = true;
         const message = wrap.querySelector(`.review-message[data-req-id="${btn.dataset.reject}"]`).value.trim();
-        const { error } = await sb.from("occurrence_deletion_requests").update({ status: "rejeitada", reviewed_at: new Date().toISOString(), review_message: message || null }).eq("id", btn.dataset.reject);
+        const req = pending.find((r) => r.id === btn.dataset.reject);
+        const { error } = await sb.from("occurrence_deletion_requests").update({ status: "rejeitada", reviewed_at: new Date().toISOString(), review_message: message || null }).eq("id", req.id);
         if (error) { showToast("Erro ao rejeitar: " + error.message); btn.disabled = false; return; }
         showToast("Solicitação rejeitada.");
+        await notifyRequester(req, "rejeitada", message);
         state.pendingDeletions = await fetchPendingDeletions();
         renderList();
       };
     });
+  }
+
+  // Best-effort: the approval/rejection itself already succeeded by the
+  // time this runs, so an email hiccup (bad address, SMTP blip) shouldn't
+  // undo it — just tell the CCO the notification didn't go out.
+  async function notifyRequester(req, status, message) {
+    if (!req.requested_by) return;
+    const { error } = await sb.functions.invoke("enviar-email-exclusao", {
+      body: { to: req.requested_by, protocol: req.protocol, status, reason: req.reason, message },
+    });
+    if (error) showToast("Aviso: não foi possível enviar o e-mail ao solicitante (" + req.requested_by + ").");
   }
 }
 
