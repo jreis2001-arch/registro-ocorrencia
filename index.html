@@ -1825,7 +1825,13 @@ function screenRevisao() {
       state.screen = "confirmacao";
       render();
     } catch (err) {
-      showToast("Erro ao enviar: " + err.message);
+      // The DB-level constraint is a last-resort backstop for the same
+      // rule screenDataFato already enforces — if it ever fires, show the
+      // same friendly message instead of the raw Postgres error text.
+      const friendly = err.message && err.message.includes("occurrences_incident_date_not_future")
+        ? "A data do fato não pode ser no futuro. Volte e corrija a data."
+        : "Erro ao enviar: " + err.message;
+      showToast(friendly);
       btnEnviar.disabled = false;
       btnEnviar.textContent = "Confirmar e enviar";
     }
