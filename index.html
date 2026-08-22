@@ -297,6 +297,15 @@ const LEVELS = { BAIXA: 0, MEDIA: 1, ALTA: 2 };
 const LEVEL_LABEL = { ALTA: "Alta", MEDIA: "Média", BAIXA: "Baixa" };
 const CRIT_LEVELS = ["ALTA", "MEDIA", "BAIXA"]; // iteration order for the dashboard
 
+// Evidence upload limits — store Wi-Fi is often unreliable, and unbounded
+// uploads both risk failing mid-transfer and inflate storage cost with no
+// real benefit (documentation photos don't need more than this).
+const EVIDENCE_MAX_PHOTO_MB = 8;
+const EVIDENCE_MAX_VIDEO_MB = 50;
+const EVIDENCE_MAX_FILES = 5;
+const EVIDENCE_MAX_TOTAL_MB = 150;
+const EVIDENCE_PHOTO_MAX_DIMENSION = 1920; // longest side, px — used when compressing an oversized photo
+
 const STATE_NAMES = {
   AC:"Acre", AL:"Alagoas", AP:"Amapá", AM:"Amazonas", BA:"Bahia", CE:"Ceará",
   DF:"Distrito Federal", ES:"Espírito Santo", GO:"Goiás", MA:"Maranhão",
@@ -1083,6 +1092,34 @@ function fmtDate(iso) {
   const d = new Date(iso);
   return d.toLocaleDateString("pt-BR") + " · " + d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
+// Downscales an oversized photo to fit EVIDENCE_PHOTO_MAX_DIMENSION and
+// re-encodes as JPEG — run only on photos that exceed EVIDENCE_MAX_PHOTO_MB,
+// so a reporter never gets blocked just for using a high-megapixel camera.
+function compressImage(file, maxDimension, quality) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      let { width, height } = img;
+      if (width > maxDimension || height > maxDimension) {
+        if (width > height) { height = Math.round((height * maxDimension) / width); width = maxDimension; }
+        else { width = Math.round((width * maxDimension) / height); height = maxDimension; }
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+      canvas.toBlob((blob) => {
+        URL.revokeObjectURL(url);
+        if (!blob) { reject(new Error("Falha ao compactar imagem.")); return; }
+        resolve(new File([blob], file.name.replace(/\.\w+$/, "") + ".jpg", { type: "image/jpeg" }));
+      }, "image/jpeg", quality);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Falha ao carregar imagem.")); };
+    img.src = url;
+  });
+}
+
 // Local calendar date (not toISOString(), which is UTC-based and can show
 // "tomorrow" during the evening in Brazil's UTC-3) — used to cap "data do
 // fato" so an occurrence can't be logged as happening in the future.
@@ -1713,7 +1750,7 @@ function screenEvidencias() {
       <label class="upload-area" for="fileInput" style="cursor:pointer;">
         ${ICONS.camera}
         <div class="upload-title">Toque para adicionar foto ou vídeo</div>
-        <div class="upload-sub">Você também pode selecionar da galeria</div>
+        <div class="upload-sub">Fotos até ${EVIDENCE_MAX_PHOTO_MB} MB (compactamos automaticamente se passar) · Vídeos até ${EVIDENCE_MAX_VIDEO_MB} MB · Até ${EVIDENCE_MAX_FILES} arquivos</div>
       </label>
       <input type="file" id="fileInput" accept="image/*,video/*" multiple style="display:none;">
       <div id="fileList" style="display:flex; flex-direction:column; gap:10px;"></div>
@@ -1723,11 +1760,41 @@ function screenEvidencias() {
   `);
   document.getElementById("btnBack").onclick = () => { state.screen = "formDinamico"; render(); };
   renderFileList();
-  document.getElementById("fileInput").addEventListener("change", (e) => {
-    Array.from(e.target.files).forEach((f) => {
+  document.getElementById("fileInput").addEventListener("change", async (e) => {
+    const files = Array.from(e.target.files);
+    e.target.value = ""; // lets the same file be re-picked later if removed
+    for (let f of files) {
+      if (d.evidence.length >= EVIDENCE_MAX_FILES) {
+        showToast(`Máximo de ${EVIDENCE_MAX_FILES} arquivos por ocorrência.`);
+        break;
+      }
+      const isImage = f.type.startsWith("image/");
+      const isVideo = f.type.startsWith("video/");
+      if (isVideo && f.size > EVIDENCE_MAX_VIDEO_MB * 1024 * 1024) {
+        showToast(`"${f.name}" tem ${(f.size / 1024 / 1024).toFixed(0)} MB — o limite para vídeos é ${EVIDENCE_MAX_VIDEO_MB} MB. Grave um vídeo mais curto.`);
+        continue;
+      }
+      if (isImage && f.size > EVIDENCE_MAX_PHOTO_MB * 1024 * 1024) {
+        try {
+          f = await compressImage(f, EVIDENCE_PHOTO_MAX_DIMENSION, 0.8);
+          if (f.size > EVIDENCE_MAX_PHOTO_MB * 1024 * 1024) {
+            showToast(`"${f.name}" continua maior que ${EVIDENCE_MAX_PHOTO_MB} MB mesmo depois de compactar. Tente outra foto.`);
+            continue;
+          }
+          showToast(`"${f.name}" foi compactada automaticamente para caber no limite.`);
+        } catch (err) {
+          showToast(`Não foi possível compactar "${f.name}". Tente outra foto.`);
+          continue;
+        }
+      }
+      const currentTotal = d.evidence.reduce((sum, ev) => sum + ev.size, 0);
+      if (currentTotal + f.size > EVIDENCE_MAX_TOTAL_MB * 1024 * 1024) {
+        showToast(`O total de evidências não pode passar de ${EVIDENCE_MAX_TOTAL_MB} MB nesta ocorrência.`);
+        continue;
+      }
       const url = URL.createObjectURL(f);
       d.evidence.push({ name: f.name, size: f.size, type: f.type, url, file: f });
-    });
+    }
     renderFileList();
   });
   function renderFileList() {
@@ -1735,7 +1802,7 @@ function screenEvidencias() {
     list.innerHTML = d.evidence.map((f, i) => `
       <div class="file-item">
         <div class="file-thumb">${f.type.startsWith("image/") ? `<img src="${f.url}">` : ICONS.camera}</div>
-        <div class="file-text"><div class="file-name">${escapeHtml(f.name)}</div><div class="file-meta">${(f.size / 1024).toFixed(0)} KB</div></div>
+        <div class="file-text"><div class="file-name">${escapeHtml(f.name)}</div><div class="file-meta">${f.size > 1024 * 1024 ? (f.size / 1024 / 1024).toFixed(1) + " MB" : (f.size / 1024).toFixed(0) + " KB"}</div></div>
         <button class="file-remove" data-i="${i}">${ICONS.trash}</button>
       </div>`).join("");
     list.querySelectorAll(".file-remove").forEach((btn) => {
