@@ -2492,7 +2492,7 @@ async function loadStoreAndGo() {
     await loadDashboardData();
     state.pendingStores = await fetchPendingStores();
     state.pendingDeletions = await fetchPendingDeletions();
-    state.screen = "dashboard";
+    state.screen = "home";
     render();
     return;
   }
