@@ -382,6 +382,8 @@ function mapOccurrenceFromDb(row) {
     reportText: row.report_text,
     evidence: row.occurrence_evidence || [],
     guidanceChecked: row.guidance_checked || null,
+    incidentDate: row.incident_date,
+    incidentTime: row.incident_time,
   };
 }
 
@@ -1136,6 +1138,10 @@ function todayLocalDateStr() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
+function currentLocalTimeStr() {
+  const now = new Date();
+  return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+}
 
 /* ============================= SCREENS ============================= */
 function screenHome() {
@@ -1322,9 +1328,13 @@ function screenDetalhe() {
         <div class="detail-label">Loja</div>
         <div class="detail-text">${escapeHtml(o.store || "—")}</div>
       </div>` : ""}
+      ${o.incidentDate ? `<div class="detail-section">
+        <div class="detail-label">Data do fato</div>
+        <div class="detail-text">${new Date(o.incidentDate + "T00:00:00").toLocaleDateString("pt-BR")}${o.incidentTime ? " · " + o.incidentTime : ""} <span style="color:var(--ink-faint);">— use esta data para pedir exclusão</span></div>
+      </div>` : ""}
       <div class="detail-section">
         <div class="detail-label">Status</div>
-        <div class="detail-text">${o.status} — ${fmtDate(o.createdAt)}</div>
+        <div class="detail-text">${o.status} — Registrada na loja em ${fmtDate(o.createdAt)}</div>
       </div>
       <div class="detail-section">
         <div class="detail-label">Relato</div>
@@ -1531,6 +1541,10 @@ function screenTipoOcorrencia() {
 
 function screenDataFato() {
   const d = state.draft;
+  // Most occurrences are reported right as they happen, so default to "now"
+  // — the reporter can still change it for something that happened earlier.
+  if (!d.incidentDate) d.incidentDate = todayLocalDateStr();
+  if (!d.incidentTime) d.incidentTime = currentLocalTimeStr();
   mount(`
     <div class="topbar">
       <div class="topbar-row">
@@ -3161,7 +3175,12 @@ function screenExclusoesPendentes() {
         <div class="card" style="margin-bottom:10px;">
           <div style="font-weight:600; font-size:14px;">${escapeHtml(r.protocol)}</div>
           <div style="font-size:12.5px; color:var(--ink-soft); margin-bottom:6px;">${escapeHtml(r.store ? r.store.name : "—")} · Data do fato: ${r.incident_date ? new Date(r.incident_date + "T00:00:00").toLocaleDateString("pt-BR") : "—"}</div>
+          <div style="font-size:12.5px; color:var(--ink-soft); margin-bottom:6px;">Solicitado por: ${escapeHtml(r.requested_by || "—")}</div>
           <div style="font-size:13px; color:var(--ink); margin-bottom:10px;"><strong>Motivo:</strong> ${escapeHtml(r.reason)}</div>
+          <div class="field-group" style="margin-bottom:10px;">
+            <div class="field-label">Mensagem de confirmação para o solicitante</div>
+            <textarea class="field-input review-message" data-req-id="${r.id}" placeholder="Ex.: Exclusão aprovada, ocorrência era duplicada." style="min-height:60px;"></textarea>
+          </div>
           <div style="display:flex; gap:10px;">
             <button class="btn btn-primary" data-approve="${r.id}" style="flex:1;">Aprovar e excluir</button>
             <button class="btn-text" data-reject="${r.id}" style="color:var(--red);">Rejeitar</button>
@@ -3174,11 +3193,12 @@ function screenExclusoesPendentes() {
         if (!confirm("Tem certeza? A ocorrência será excluída definitivamente, junto com as evidências anexadas.")) return;
         btn.disabled = true;
         const req = pending.find((r) => r.id === btn.dataset.approve);
+        const message = wrap.querySelector(`.review-message[data-req-id="${req.id}"]`).value.trim();
         if (req.occurrence_id) {
           const { error: delErr } = await sb.from("occurrences").delete().eq("id", req.occurrence_id);
           if (delErr) { showToast("Erro ao excluir a ocorrência: " + delErr.message); btn.disabled = false; return; }
         }
-        const { error } = await sb.from("occurrence_deletion_requests").update({ status: "aprovada", reviewed_at: new Date().toISOString() }).eq("id", req.id);
+        const { error } = await sb.from("occurrence_deletion_requests").update({ status: "aprovada", reviewed_at: new Date().toISOString(), review_message: message || null }).eq("id", req.id);
         if (error) { showToast("Erro ao atualizar a solicitação: " + error.message); btn.disabled = false; return; }
         showToast("Ocorrência excluída.");
         state.pendingDeletions = await fetchPendingDeletions();
@@ -3189,7 +3209,8 @@ function screenExclusoesPendentes() {
     wrap.querySelectorAll("[data-reject]").forEach((btn) => {
       btn.onclick = async () => {
         btn.disabled = true;
-        const { error } = await sb.from("occurrence_deletion_requests").update({ status: "rejeitada", reviewed_at: new Date().toISOString() }).eq("id", btn.dataset.reject);
+        const message = wrap.querySelector(`.review-message[data-req-id="${btn.dataset.reject}"]`).value.trim();
+        const { error } = await sb.from("occurrence_deletion_requests").update({ status: "rejeitada", reviewed_at: new Date().toISOString(), review_message: message || null }).eq("id", btn.dataset.reject);
         if (error) { showToast("Erro ao rejeitar: " + error.message); btn.disabled = false; return; }
         showToast("Solicitação rejeitada.");
         state.pendingDeletions = await fetchPendingDeletions();
