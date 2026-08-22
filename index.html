@@ -3107,7 +3107,7 @@ function screenSolicitarExclusao() {
       </div>
       <div class="field-group">
         <div class="field-label">Data da ocorrência <span class="req">*</span></div>
-        <input type="date" id="delData" class="field-input">
+        <input type="date" id="delData" class="field-input" max="${todayLocalDateStr()}">
       </div>
       <div class="field-group">
         <div class="field-label">Loja</div>
@@ -3126,6 +3126,10 @@ function screenSolicitarExclusao() {
     const dataFato = document.getElementById("delData").value;
     const motivo = document.getElementById("delMotivo").value.trim();
     if (!protocol || !dataFato || !motivo) { showToast("Preencha todos os campos."); return; }
+    // The `max` attribute stops the native picker, but not manual typing —
+    // and an occurrence can never have a future incident_date anyway, so a
+    // future date here could never match a real one.
+    if (dataFato > todayLocalDateStr()) { showToast("A data da ocorrência não pode ser no futuro."); return; }
 
     const btn = document.getElementById("btnEnviarExclusao");
     btn.disabled = true;
