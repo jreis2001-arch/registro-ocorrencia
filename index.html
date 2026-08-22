@@ -2726,32 +2726,36 @@ function screenAprovacoes() {
 }
 
 // Staff-only: pick a tipologia, then create/edit/reorder/delete up to 10
-// guidance steps for it. Reordering swaps step_order via a scratch value
-// (-1) first, since (tipologia, step_order) is unique — writing the target
-// order straight to both rows in either sequence would collide.
+// guidance steps for it. Two real screens (picker, then editor) rather than
+// one screen with the editor appended below a long list — the tipologia
+// list runs to dozens of rows, so an in-place append landed off-screen and
+// read as "clicking does nothing".
+// Reordering swaps step_order via a scratch value (-1) first, since
+// (tipologia, step_order) is unique — writing the target order straight to
+// both rows in either sequence would collide.
 function screenOrientacoes() {
-  mount(`
-    <div class="topbar">
-      <div class="topbar-row">
-        <button class="iconbtn" id="btnBack">${ICONS.back}</button>
-        <div class="topbar-title">Orientações por ocorrência</div>
+  renderPicker("");
+
+  function renderPicker(filterText) {
+    mount(`
+      <div class="topbar">
+        <div class="topbar-row">
+          <button class="iconbtn" id="btnBack">${ICONS.back}</button>
+          <div class="topbar-title">Orientações por ocorrência</div>
+        </div>
       </div>
-    </div>
-    <div class="content">
-      <input type="text" id="tipoSearchAdmin" class="field-input" placeholder="Buscar tipo de ocorrência…">
-      <div id="tipoListWrapAdmin"></div>
-      <div id="guidanceEditorWrap"></div>
-    </div>
-    ${bottomNav("home")}
-  `);
-  document.getElementById("btnBack").onclick = () => { state.screen = "home"; render(); };
-  wireNav();
+      <div class="content">
+        <input type="text" id="tipoSearchAdmin" class="field-input" placeholder="Buscar tipo de ocorrência…">
+        <div id="tipoListWrapAdmin"></div>
+      </div>
+      ${bottomNav("home")}
+    `);
+    document.getElementById("btnBack").onclick = () => { state.screen = "home"; render(); };
+    wireNav();
 
-  let selectedTipologia = null;
-  const listWrap = document.getElementById("tipoListWrapAdmin");
-  const editorWrap = document.getElementById("guidanceEditorWrap");
-
-  const renderTipoList = (filterText) => {
+    const searchInput = document.getElementById("tipoSearchAdmin");
+    searchInput.value = filterText;
+    const listWrap = document.getElementById("tipoListWrapAdmin");
     const f = (filterText || "").toLowerCase();
     const filtered = TIPOLOGIA_INDEX.filter((t) => !f || t.tipologia.toLowerCase().includes(f) || t.categoria.toLowerCase().includes(f));
     const groups = [];
@@ -2765,41 +2769,53 @@ function screenOrientacoes() {
         <div class="section-title" style="margin-top:14px;">${escapeHtml(cat)}</div>
         <div style="display:flex; flex-direction:column; gap:8px; margin-top:8px;">
           ${byCat[cat].map((tip) => `
-            <button class="occ-item ${selectedTipologia === tip ? "selected" : ""}" data-tipologia="${escapeHtml(tip)}">
+            <button class="occ-item" data-tipologia="${escapeHtml(tip)}">
               <div class="occ-text"><div class="occ-proto">${escapeHtml(tip)}</div></div>
               ${ICONS.chevronRight}
             </button>`).join("")}
         </div>
       `).join("");
     listWrap.querySelectorAll("[data-tipologia]").forEach((btn) => {
-      btn.onclick = () => {
-        selectedTipologia = btn.dataset.tipologia;
-        renderTipoList(document.getElementById("tipoSearchAdmin").value);
-        loadGuidanceEditor();
-      };
+      btn.onclick = () => loadEditorScreen(btn.dataset.tipologia);
     });
-  };
-  renderTipoList("");
-  document.getElementById("tipoSearchAdmin").addEventListener("input", (e) => renderTipoList(e.target.value));
-
-  async function loadGuidanceEditor() {
-    editorWrap.innerHTML = `<div class="empty-note" style="margin-top:14px;">Carregando…</div>`;
-    const { data: steps, error } = await sb.from("occurrence_guidance").select("*").eq("tipologia", selectedTipologia).order("step_order");
-    if (error) { editorWrap.innerHTML = `<div class="empty-note">Erro ao carregar: ${escapeHtml(error.message)}</div>`; return; }
-    renderEditor(steps || []);
+    searchInput.addEventListener("input", (e) => renderPicker(e.target.value));
+    // Re-typing after a re-render loses focus/cursor otherwise.
+    searchInput.focus();
+    searchInput.setSelectionRange(searchInput.value.length, searchInput.value.length);
   }
 
-  function renderEditor(steps) {
-    editorWrap.innerHTML = `
-      <div class="section-title" style="margin-top:18px;">Passos — ${escapeHtml(selectedTipologia)}</div>
-      <div style="display:flex; flex-direction:column; gap:10px; margin-top:8px;" id="stepsListWrap"></div>
-      ${steps.length < 10 ? `
-        <div class="field-group" style="margin-top:12px;">
-          <textarea id="novoStepText" class="field-input" placeholder="Novo passo de orientação…" style="min-height:60px;"></textarea>
-          <button class="btn btn-primary" id="btnAddStep" style="margin-top:8px;">Adicionar passo</button>
+  async function loadEditorScreen(tipologia) {
+    const { data: steps, error } = await sb.from("occurrence_guidance").select("*").eq("tipologia", tipologia).order("step_order");
+    if (error) { showToast("Erro ao carregar: " + error.message); return; }
+    renderEditorScreen(tipologia, steps || []);
+  }
+
+  function renderEditorScreen(tipologia, steps) {
+    mount(`
+      <div class="topbar">
+        <div class="topbar-row">
+          <button class="iconbtn" id="btnBackToPicker">${ICONS.back}</button>
+          <div>
+            <div class="topbar-title">${escapeHtml(tipologia)}</div>
+            <div class="step-label">Passos de orientação</div>
+          </div>
         </div>
-      ` : `<div class="empty-note" style="margin-top:12px;">Limite de 10 passos atingido.</div>`}
-    `;
+      </div>
+      <div class="content">
+        <div style="display:flex; flex-direction:column; gap:10px;" id="stepsListWrap"></div>
+        ${steps.length < 10 ? `
+          <div class="field-group" style="margin-top:12px;">
+            <div class="field-label">Novo passo</div>
+            <textarea id="novoStepText" class="field-input" placeholder="Texto do passo de orientação…" style="min-height:60px;"></textarea>
+            <button class="btn btn-primary" id="btnAddStep" style="margin-top:8px;">Adicionar passo</button>
+          </div>
+        ` : `<div class="empty-note" style="margin-top:12px;">Limite de 10 passos atingido.</div>`}
+      </div>
+      ${bottomNav("home")}
+    `);
+    document.getElementById("btnBackToPicker").onclick = () => renderPicker("");
+    wireNav();
+
     const stepsListWrap = document.getElementById("stepsListWrap");
     stepsListWrap.innerHTML = steps.length === 0 ? `<div class="empty-note">Nenhuma orientação cadastrada para este tipo ainda.</div>` :
       steps.map((s, i) => `
@@ -2828,7 +2844,7 @@ function screenOrientacoes() {
       btn.onclick = async () => {
         const { error } = await sb.from("occurrence_guidance").delete().eq("id", btn.dataset.delete);
         if (error) { showToast("Erro ao excluir: " + error.message); return; }
-        loadGuidanceEditor();
+        loadEditorScreen(tipologia);
       };
     });
     stepsListWrap.querySelectorAll("[data-up]").forEach((btn) => {
@@ -2836,7 +2852,7 @@ function screenOrientacoes() {
         const idx = steps.findIndex((s) => s.id === btn.dataset.up);
         if (idx <= 0) return;
         await swapStepOrder(steps[idx], steps[idx - 1]);
-        loadGuidanceEditor();
+        loadEditorScreen(tipologia);
       };
     });
     stepsListWrap.querySelectorAll("[data-down]").forEach((btn) => {
@@ -2844,7 +2860,7 @@ function screenOrientacoes() {
         const idx = steps.findIndex((s) => s.id === btn.dataset.down);
         if (idx < 0 || idx >= steps.length - 1) return;
         await swapStepOrder(steps[idx], steps[idx + 1]);
-        loadGuidanceEditor();
+        loadEditorScreen(tipologia);
       };
     });
 
@@ -2856,9 +2872,9 @@ function screenOrientacoes() {
         if (!text) { showToast("Escreva o texto do passo."); return; }
         if (steps.length >= 10) { showToast("Limite de 10 passos atingido."); return; }
         const nextOrder = steps.length === 0 ? 1 : Math.max(...steps.map((s) => s.step_order)) + 1;
-        const { error } = await sb.from("occurrence_guidance").insert({ tipologia: selectedTipologia, step_order: nextOrder, text });
+        const { error } = await sb.from("occurrence_guidance").insert({ tipologia, step_order: nextOrder, text });
         if (error) { showToast("Erro ao adicionar: " + error.message); return; }
-        loadGuidanceEditor();
+        loadEditorScreen(tipologia);
       };
     }
   }
