@@ -1563,19 +1563,28 @@ function screenDataFato() {
       </div>
       <div class="field-group">
         <div class="field-label">Horário aproximado</div>
-        <input type="time" id="fatoHora" class="field-input" value="${d.incidentTime}">
+        <input type="time" id="fatoHora" class="field-input" value="${d.incidentTime}" ${d.incidentDate === todayLocalDateStr() ? `max="${currentLocalTimeStr()}"` : ""}>
       </div>
       <button class="btn btn-primary" id="btnContinuar">Continuar ${ICONS.arrowRight}</button>
     </div>
   `);
   document.getElementById("btnBack").onclick = () => { state.screen = "tipoOcorrencia"; render(); };
-  document.getElementById("fatoData").addEventListener("input", (e) => { d.incidentDate = e.target.value; });
+  document.getElementById("fatoData").addEventListener("input", (e) => {
+    d.incidentDate = e.target.value;
+    // A past date lifts the time cap; picking today re-applies it — the
+    // input's own `max` can't react to another field on its own.
+    document.getElementById("fatoHora").max = d.incidentDate === todayLocalDateStr() ? currentLocalTimeStr() : "";
+  });
   document.getElementById("fatoHora").addEventListener("input", (e) => { d.incidentTime = e.target.value; });
   document.getElementById("btnContinuar").onclick = () => {
     if (!d.incidentDate) { showToast("Informe a data em que a ocorrência aconteceu."); return; }
-    // The `max` attribute stops the date picker UI, but not manual typing
-    // or a pasted value — enforce it here too before letting the draft move on.
+    // The `max` attributes stop the native pickers, but not manual typing
+    // or a pasted value — enforce both here too before the draft moves on.
     if (d.incidentDate > todayLocalDateStr()) { showToast("A data do fato não pode ser no futuro."); return; }
+    if (d.incidentDate === todayLocalDateStr() && d.incidentTime && d.incidentTime > currentLocalTimeStr()) {
+      showToast("O horário não pode ser no futuro para uma ocorrência de hoje.");
+      return;
+    }
     state.screen = "formDinamico";
     render();
   };
