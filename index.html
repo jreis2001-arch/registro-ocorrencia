@@ -1168,7 +1168,10 @@ function occRow(o) {
     </button>`;
 }
 function wireOccRows() {
-  document.querySelectorAll(".occ-item").forEach((btn) => {
+  // Scoped to [data-id] — other .occ-item-styled buttons on the same screen
+  // (e.g. the staff-only "Cadastros pendentes" / "Orientações" cards) have
+  // their own onclick set separately and must not be overwritten here.
+  document.querySelectorAll(".occ-item[data-id]").forEach((btn) => {
     btn.onclick = () => { state.detailId = btn.dataset.id; state.screen = "detalhe"; render(); };
   });
 }
