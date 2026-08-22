@@ -3131,6 +3131,17 @@ function screenSolicitarExclusao() {
     // future date here could never match a real one.
     if (dataFato > todayLocalDateStr()) { showToast("A data da ocorrência não pode ser no futuro."); return; }
 
+    const dataFatoLabel = new Date(dataFato + "T00:00:00").toLocaleDateString("pt-BR");
+    const confirmado = confirm(
+      "Confira antes de enviar:\n\n" +
+      "Protocolo: " + protocol + "\n" +
+      "Data: " + dataFatoLabel + "\n" +
+      "Loja: " + state.store.name + "\n" +
+      "Motivo: " + motivo + "\n\n" +
+      "Tem certeza que quer solicitar a exclusão desta ocorrência?"
+    );
+    if (!confirmado) return;
+
     const btn = document.getElementById("btnEnviarExclusao");
     btn.disabled = true;
     btn.textContent = "Enviando…";
