@@ -372,6 +372,7 @@ function mapOccurrenceFromDb(row) {
     categoria: row.categoria,
     reportText: row.report_text,
     evidence: row.occurrence_evidence || [],
+    guidanceChecked: row.guidance_checked || null,
   };
 }
 
@@ -932,6 +933,7 @@ function newDraft() {
     tipologia: null,
     categoria: null,
     guidanceSteps: [],   // set by screenTipoOcorrencia when the picked tipologia has guidance
+    guidanceChecked: {}, // step id -> boolean, ticked by the reporter on screenOrientacao
     incidentDate: "",
     incidentTime: "",
     answers: {},        // dynamic field id -> string | string[], keyed per TIPOLOGIA_SPEC
@@ -1268,6 +1270,18 @@ function screenDetalhe() {
         <div class="detail-label">Evidências</div>
         <div class="detail-text">${o.evidence.length} arquivo(s) anexado(s), com acesso restrito ao CCO.</div>
       </div>
+      ${o.guidanceChecked && o.guidanceChecked.length > 0 ? `
+      <div class="detail-section">
+        <div class="detail-label">Orientações seguidas pelo relator</div>
+        <div style="display:flex; flex-direction:column; gap:8px; margin-top:6px;">
+          ${o.guidanceChecked.map((g) => `
+            <div style="display:flex; gap:10px; align-items:flex-start; font-size:13.5px;">
+              <span style="flex-shrink:0; color:${g.checked ? "var(--green)" : "var(--ink-faint)"};">${g.checked ? ICONS.check : "○"}</span>
+              <span style="color:${g.checked ? "var(--ink)" : "var(--ink-faint)"}; ${g.checked ? "" : "text-decoration:line-through;"}">${escapeHtml(g.text)}</span>
+            </div>
+          `).join("")}
+        </div>
+      </div>` : ""}
     </div>
     ${bottomNav("minhas")}
   `);
@@ -1438,6 +1452,7 @@ function screenTipoOcorrencia() {
         const { data: steps } = await sb.from("occurrence_guidance").select("*").eq("tipologia", d.tipologia).order("step_order");
         if (steps && steps.length > 0) {
           d.guidanceSteps = steps;
+          d.guidanceChecked = {};
           state.screen = "orientacao";
         } else {
           state.screen = "dataFato";
@@ -1787,6 +1802,12 @@ function screenRevisao() {
         report_text: d.reportText,
         respostas_dinamicas: d.answers,
         criticality: d.criticality.toLowerCase(),
+        // A snapshot (text + checked), not step ids — the guidance steps
+        // themselves can be edited or deleted later, but this occurrence's
+        // record of what the reporter saw and ticked shouldn't change.
+        guidance_checked: d.guidanceSteps.length > 0
+          ? d.guidanceSteps.map((s) => ({ text: s.text, checked: !!d.guidanceChecked[s.id] }))
+          : null,
       }).select().single();
       if (error) throw error;
 
@@ -2914,13 +2935,16 @@ function screenOrientacao() {
       </div>
     </div>
     <div class="content">
-      <div class="helper">${ICONS.info}<div class="helper-text">Siga os passos abaixo antes de abrir o chamado.</div></div>
+      <div class="helper">${ICONS.info}<div class="helper-text">Siga os passos abaixo e marque os que você já fez — o CCO vê o que foi seguido.</div></div>
       <div style="display:flex; flex-direction:column; gap:12px;">
         ${d.guidanceSteps.map((s, i) => `
           <div class="card">
             <div style="display:flex; gap:12px; align-items:flex-start;">
               <div style="flex-shrink:0; width:26px; height:26px; border-radius:50%; background:var(--primary); color:white; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:12.5px;">${i + 1}</div>
-              <div style="font-size:13.5px; color:var(--ink); padding-top:3px; white-space:pre-wrap;">${escapeHtml(s.text)}</div>
+              <div style="font-size:13.5px; color:var(--ink); padding-top:3px; white-space:pre-wrap; flex:1;">${escapeHtml(s.text)}</div>
+              <label style="flex-shrink:0; padding-top:2px; cursor:pointer;">
+                <input type="checkbox" class="guidance-check" data-step-id="${s.id}" ${d.guidanceChecked[s.id] ? "checked" : ""} style="width:21px; height:21px; cursor:pointer; accent-color:var(--primary);">
+              </label>
             </div>
           </div>
         `).join("")}
@@ -2929,6 +2953,9 @@ function screenOrientacao() {
     </div>
   `);
   document.getElementById("btnBack").onclick = () => { state.screen = "tipoOcorrencia"; render(); };
+  document.querySelectorAll(".guidance-check").forEach((cb) => {
+    cb.addEventListener("change", (e) => { d.guidanceChecked[cb.dataset.stepId] = e.target.checked; });
+  });
   document.getElementById("btnContinuarOrientacao").onclick = () => { state.screen = "dataFato"; render(); };
 }
 
