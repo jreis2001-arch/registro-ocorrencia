@@ -931,6 +931,7 @@ function newDraft() {
     reporter: { name: "", email: "", relationship: "", role: "", phone: "" },
     tipologia: null,
     categoria: null,
+    guidanceSteps: [],   // set by screenTipoOcorrencia when the picked tipologia has guidance
     incidentDate: "",
     incidentTime: "",
     answers: {},        // dynamic field id -> string | string[], keyed per TIPOLOGIA_SPEC
@@ -1116,6 +1117,13 @@ function screenHome() {
           </div>
           ${ICONS.chevronRight}
         </button>
+        <button class="occ-item" id="btnOrientacoes" style="margin-bottom:4px;">
+          <div class="occ-text">
+            <div class="occ-proto">Orientações por ocorrência</div>
+            <div class="occ-status">Cadastrar passos que a loja vê antes de abrir o chamado</div>
+          </div>
+          ${ICONS.chevronRight}
+        </button>
       ` : ""}
 
       <div class="section-title">${isStaff ? "Maiores riscos (todas as lojas)" : "Maiores riscos"}</div>
@@ -1132,6 +1140,7 @@ function screenHome() {
   };
   if (isStaff) {
     document.getElementById("btnCadastrosPendentes").onclick = () => { state.screen = "aprovacoes"; render(); };
+    document.getElementById("btnOrientacoes").onclick = () => { state.screen = "orientacoes"; render(); };
   }
   document.getElementById("btnLogout").onclick = async () => {
     await sb.auth.signOut();
@@ -1410,11 +1419,19 @@ function screenTipoOcorrencia() {
         </div>
       `).join("");
     wrap.querySelectorAll("[data-tipologia]").forEach((btn) => {
-      btn.onclick = () => {
+      btn.onclick = async () => {
         d.tipologia = btn.dataset.tipologia;
         d.categoria = btn.dataset.categoria;
         d.answers = {};
-        state.screen = "dataFato";
+        // If this tipologia has guidance steps, show them first — otherwise
+        // skip straight to dataFato, exactly as before this feature existed.
+        const { data: steps } = await sb.from("occurrence_guidance").select("*").eq("tipologia", d.tipologia).order("step_order");
+        if (steps && steps.length > 0) {
+          d.guidanceSteps = steps;
+          state.screen = "orientacao";
+        } else {
+          state.screen = "dataFato";
+        }
         render();
       };
     });
@@ -2281,6 +2298,8 @@ function render() {
   if (s === "aguardandoAprovacao") return screenAguardandoAprovacao();
   if (s === "redefinirSenha") return screenRedefinirSenha();
   if (s === "aprovacoes") return screenAprovacoes();
+  if (s === "orientacoes") return screenOrientacoes();
+  if (s === "orientacao") return screenOrientacao();
   if (s === "home") return screenHome();
   if (s === "minhas") return screenMinhas();
   if (s === "detalhe") return screenDetalhe();
@@ -2701,6 +2720,187 @@ function screenAprovacoes() {
       };
     });
   }
+}
+
+// Staff-only: pick a tipologia, then create/edit/reorder/delete up to 10
+// guidance steps for it. Reordering swaps step_order via a scratch value
+// (-1) first, since (tipologia, step_order) is unique — writing the target
+// order straight to both rows in either sequence would collide.
+function screenOrientacoes() {
+  mount(`
+    <div class="topbar">
+      <div class="topbar-row">
+        <button class="iconbtn" id="btnBack">${ICONS.back}</button>
+        <div class="topbar-title">Orientações por ocorrência</div>
+      </div>
+    </div>
+    <div class="content">
+      <input type="text" id="tipoSearchAdmin" class="field-input" placeholder="Buscar tipo de ocorrência…">
+      <div id="tipoListWrapAdmin"></div>
+      <div id="guidanceEditorWrap"></div>
+    </div>
+    ${bottomNav("home")}
+  `);
+  document.getElementById("btnBack").onclick = () => { state.screen = "home"; render(); };
+  wireNav();
+
+  let selectedTipologia = null;
+  const listWrap = document.getElementById("tipoListWrapAdmin");
+  const editorWrap = document.getElementById("guidanceEditorWrap");
+
+  const renderTipoList = (filterText) => {
+    const f = (filterText || "").toLowerCase();
+    const filtered = TIPOLOGIA_INDEX.filter((t) => !f || t.tipologia.toLowerCase().includes(f) || t.categoria.toLowerCase().includes(f));
+    const groups = [];
+    const byCat = {};
+    filtered.forEach((t) => {
+      if (!byCat[t.categoria]) { byCat[t.categoria] = []; groups.push(t.categoria); }
+      byCat[t.categoria].push(t.tipologia);
+    });
+    listWrap.innerHTML = groups.length === 0 ? `<div class="empty-note">Nenhum tipo encontrado.</div>` :
+      groups.map((cat) => `
+        <div class="section-title" style="margin-top:14px;">${escapeHtml(cat)}</div>
+        <div style="display:flex; flex-direction:column; gap:8px; margin-top:8px;">
+          ${byCat[cat].map((tip) => `
+            <button class="occ-item ${selectedTipologia === tip ? "selected" : ""}" data-tipologia="${escapeHtml(tip)}">
+              <div class="occ-text"><div class="occ-proto">${escapeHtml(tip)}</div></div>
+              ${ICONS.chevronRight}
+            </button>`).join("")}
+        </div>
+      `).join("");
+    listWrap.querySelectorAll("[data-tipologia]").forEach((btn) => {
+      btn.onclick = () => {
+        selectedTipologia = btn.dataset.tipologia;
+        renderTipoList(document.getElementById("tipoSearchAdmin").value);
+        loadGuidanceEditor();
+      };
+    });
+  };
+  renderTipoList("");
+  document.getElementById("tipoSearchAdmin").addEventListener("input", (e) => renderTipoList(e.target.value));
+
+  async function loadGuidanceEditor() {
+    editorWrap.innerHTML = `<div class="empty-note" style="margin-top:14px;">Carregando…</div>`;
+    const { data: steps, error } = await sb.from("occurrence_guidance").select("*").eq("tipologia", selectedTipologia).order("step_order");
+    if (error) { editorWrap.innerHTML = `<div class="empty-note">Erro ao carregar: ${escapeHtml(error.message)}</div>`; return; }
+    renderEditor(steps || []);
+  }
+
+  function renderEditor(steps) {
+    editorWrap.innerHTML = `
+      <div class="section-title" style="margin-top:18px;">Passos — ${escapeHtml(selectedTipologia)}</div>
+      <div style="display:flex; flex-direction:column; gap:10px; margin-top:8px;" id="stepsListWrap"></div>
+      ${steps.length < 10 ? `
+        <div class="field-group" style="margin-top:12px;">
+          <textarea id="novoStepText" class="field-input" placeholder="Novo passo de orientação…" style="min-height:60px;"></textarea>
+          <button class="btn btn-primary" id="btnAddStep" style="margin-top:8px;">Adicionar passo</button>
+        </div>
+      ` : `<div class="empty-note" style="margin-top:12px;">Limite de 10 passos atingido.</div>`}
+    `;
+    const stepsListWrap = document.getElementById("stepsListWrap");
+    stepsListWrap.innerHTML = steps.length === 0 ? `<div class="empty-note">Nenhuma orientação cadastrada para este tipo ainda.</div>` :
+      steps.map((s, i) => `
+        <div class="card">
+          <div style="font-size:12.5px; font-weight:600; color:var(--ink-soft); margin-bottom:6px;">Passo ${i + 1}</div>
+          <textarea class="field-input step-text" data-step-id="${s.id}" style="min-height:60px;">${escapeHtml(s.text)}</textarea>
+          <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
+            <button class="btn-text" data-up="${s.id}" ${i === 0 ? "disabled" : ""}>↑ Subir</button>
+            <button class="btn-text" data-down="${s.id}" ${i === steps.length - 1 ? "disabled" : ""}>↓ Descer</button>
+            <button class="btn-text" data-save="${s.id}" style="margin-left:auto;">Salvar</button>
+            <button class="btn-text" data-delete="${s.id}" style="color:var(--red);">Excluir</button>
+          </div>
+        </div>
+      `).join("");
+
+    stepsListWrap.querySelectorAll("[data-save]").forEach((btn) => {
+      btn.onclick = async () => {
+        const text = stepsListWrap.querySelector(`.step-text[data-step-id="${btn.dataset.save}"]`).value.trim();
+        if (!text) { showToast("O passo não pode ficar vazio."); return; }
+        const { error } = await sb.from("occurrence_guidance").update({ text }).eq("id", btn.dataset.save);
+        if (error) { showToast("Erro ao salvar: " + error.message); return; }
+        showToast("Passo salvo.");
+      };
+    });
+    stepsListWrap.querySelectorAll("[data-delete]").forEach((btn) => {
+      btn.onclick = async () => {
+        const { error } = await sb.from("occurrence_guidance").delete().eq("id", btn.dataset.delete);
+        if (error) { showToast("Erro ao excluir: " + error.message); return; }
+        loadGuidanceEditor();
+      };
+    });
+    stepsListWrap.querySelectorAll("[data-up]").forEach((btn) => {
+      btn.onclick = async () => {
+        const idx = steps.findIndex((s) => s.id === btn.dataset.up);
+        if (idx <= 0) return;
+        await swapStepOrder(steps[idx], steps[idx - 1]);
+        loadGuidanceEditor();
+      };
+    });
+    stepsListWrap.querySelectorAll("[data-down]").forEach((btn) => {
+      btn.onclick = async () => {
+        const idx = steps.findIndex((s) => s.id === btn.dataset.down);
+        if (idx < 0 || idx >= steps.length - 1) return;
+        await swapStepOrder(steps[idx], steps[idx + 1]);
+        loadGuidanceEditor();
+      };
+    });
+
+    const btnAddStep = document.getElementById("btnAddStep");
+    if (btnAddStep) {
+      btnAddStep.onclick = async () => {
+        const textEl = document.getElementById("novoStepText");
+        const text = textEl.value.trim();
+        if (!text) { showToast("Escreva o texto do passo."); return; }
+        if (steps.length >= 10) { showToast("Limite de 10 passos atingido."); return; }
+        const nextOrder = steps.length === 0 ? 1 : Math.max(...steps.map((s) => s.step_order)) + 1;
+        const { error } = await sb.from("occurrence_guidance").insert({ tipologia: selectedTipologia, step_order: nextOrder, text });
+        if (error) { showToast("Erro ao adicionar: " + error.message); return; }
+        loadGuidanceEditor();
+      };
+    }
+  }
+
+  async function swapStepOrder(a, b) {
+    const aOrder = a.step_order, bOrder = b.step_order;
+    await sb.from("occurrence_guidance").update({ step_order: -1 }).eq("id", a.id);
+    await sb.from("occurrence_guidance").update({ step_order: aOrder }).eq("id", b.id);
+    await sb.from("occurrence_guidance").update({ step_order: bOrder }).eq("id", a.id);
+  }
+}
+
+// Shown to the reporter right after picking a tipologia, only when that
+// tipologia has guidance steps — otherwise screenTipoOcorrencia skips
+// straight to screenDataFato, per "se não houver orientações, seguir
+// normalmente".
+function screenOrientacao() {
+  const d = state.draft;
+  mount(`
+    <div class="topbar">
+      <div class="topbar-row">
+        <button class="iconbtn" id="btnBack">${ICONS.back}</button>
+        <div>
+          <div class="topbar-title">${escapeHtml(d.tipologia)}</div>
+          <div class="step-label">Orientações antes de continuar</div>
+        </div>
+      </div>
+    </div>
+    <div class="content">
+      <div class="helper">${ICONS.info}<div class="helper-text">Siga os passos abaixo antes de abrir o chamado.</div></div>
+      <div style="display:flex; flex-direction:column; gap:12px;">
+        ${d.guidanceSteps.map((s, i) => `
+          <div class="card">
+            <div style="display:flex; gap:12px; align-items:flex-start;">
+              <div style="flex-shrink:0; width:26px; height:26px; border-radius:50%; background:var(--primary); color:white; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:12.5px;">${i + 1}</div>
+              <div style="font-size:13.5px; color:var(--ink); padding-top:3px; white-space:pre-wrap;">${escapeHtml(s.text)}</div>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+      <button class="btn btn-primary" id="btnContinuarOrientacao" style="margin-top:16px;">Já segui as orientações, continuar ${ICONS.arrowRight}</button>
+    </div>
+  `);
+  document.getElementById("btnBack").onclick = () => { state.screen = "tipoOcorrencia"; render(); };
+  document.getElementById("btnContinuarOrientacao").onclick = () => { state.screen = "dataFato"; render(); };
 }
 
 boot();
