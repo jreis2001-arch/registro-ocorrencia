@@ -2151,7 +2151,7 @@ function dashComputeInsights(rows) {
   const prev7 = dates.filter((d) => d >= prev7Start && d < last7Start).length;
   let trend;
   if (prev7 === 0) {
-    trend = last7 > 0 ? { dir: "up", text: `Aumento (${last7} nos últimos 7 dias, nenhuma nos 7 anteriores)` } : { dir: "flat", text: "Sem ocorrências nas últimas 2 semanas" };
+    trend = last7 > 0 ? { dir: "up", text: `Aumento de ∞% (${last7} nos últimos 7 dias, nenhuma nos 7 anteriores)` } : { dir: "flat", text: "Sem ocorrências nas últimas 2 semanas" };
   } else {
     const pct = Math.round(((last7 - prev7) / prev7) * 100);
     trend = pct > 0 ? { dir: "up", text: `Aumento de ${pct}% (${last7} vs ${prev7} na semana anterior)` }
