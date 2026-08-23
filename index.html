@@ -44,11 +44,12 @@
   .dash{padding:0 20px 40px;}
 
   .filters{display:flex; flex-wrap:wrap; gap:10px; align-items:center; background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:14px 16px; margin-bottom:20px;}
-  .filter-group{display:flex; flex-direction:column; gap:5px;}
+  .filter-group{display:flex; flex-direction:column; gap:5px; min-width:0;}
   .filter-label{font-size:10.5px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.04em;}
   select{padding:8px 10px; border:1.5px solid var(--border); border-radius:9px; font-size:13px; font-family:inherit; background:var(--surface); color:var(--ink); min-width:120px;}
-  .status-chips{display:flex; gap:6px;}
-  .status-chip{display:flex; align-items:center; gap:6px; border:1.5px solid var(--border); border-radius:999px; padding:6px 10px; font-size:12px; font-weight:600; background:var(--surface);}
+  .status-chips{display:flex; gap:6px; overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none; padding-bottom:2px; min-width:0;}
+  .status-chips::-webkit-scrollbar{display:none;}
+  .status-chip{display:flex; align-items:center; gap:6px; border:1.5px solid var(--border); border-radius:999px; padding:6px 10px; font-size:12px; font-weight:600; background:var(--surface); white-space:nowrap; flex:0 0 auto;}
   .status-chip.on.EXTREMA{border-color:var(--purple); background:var(--purple-soft); color:var(--purple);}
   .status-chip.on.ALTA{border-color:var(--red); background:var(--red-soft); color:var(--red);}
   .status-chip.on.MEDIA{border-color:var(--amber); background:var(--amber-soft); color:var(--amber);}
@@ -67,7 +68,7 @@
   #brazil-map{width:100%; height:auto; display:block;}
   #brazil-map .state{fill:var(--map-0); stroke:#FFFFFF; stroke-width:0.6; cursor:pointer; transition:opacity .12s;}
   #brazil-map .state:hover{opacity:0.75;}
-  .legend{display:flex; align-items:center; gap:6px; margin-top:12px; font-size:11px; color:var(--ink-soft);}
+  .legend{display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-top:12px; font-size:11px; color:var(--ink-soft);}
   .legend-swatch{width:16px; height:12px; border-radius:3px;}
 
   .map-tooltip{
