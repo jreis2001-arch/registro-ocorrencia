@@ -359,6 +359,11 @@ const STATE_CENTROIDS = {
 // same kind of question ("Quem é o agressor?", "Quem é a vítima?"...), so
 // it's the de-facto standard vocabulary rather than a guess from nowhere.
 const RELACAO_CARREFOUR_OPTIONS = ["Cliente", "Colaborador", "Terceiro (pessoas não identificadas)", "Lojista", "Prestador de serviço"];
+const AREA_OCORRENCIA_OPTIONS = [
+  "Entrada e saída", "Frente de caixa", "Self-checkout", "Área de vendas", "Estoque",
+  "Recebimento", "Docas", "Estacionamento", "Perecíveis", "PGC", "PAS", "Têxtil",
+  "Bazar", "Eletro", "CFTV", "E-commerce", "Portaria", "Áreas administrativas",
+];
 
 /* ============================= SUPABASE ============================= */
 const SUPABASE_URL = "https://cqrsietbgensatoytufm.supabase.co";
@@ -1060,6 +1065,7 @@ function generateReport(draft, meta) {
   lines.push(`Data do fato: ${draft.incidentDate || "—"}  |  Horário aproximado: ${draft.incidentTime || "—"}`);
   lines.push(`Tipo de ocorrência: ${draft.tipologia}`);
   lines.push(`Categoria: ${draft.categoria}`);
+  if (draft.answers["area_ocorrencia"]) lines.push(`Área da ocorrência: ${draft.answers["area_ocorrencia"]}`);
   const fields = fieldsForTipologia(draft.categoria, draft.tipologia);
   fields.forEach((f) => {
     const v = draft.answers[f.id];
@@ -1067,6 +1073,7 @@ function generateReport(draft, meta) {
     const display = Array.isArray(v) ? v.join(", ") : v;
     lines.push(`- ${f.label.replace(/\?$/, "")}: ${display}`);
   });
+  if (draft.answers["loja_fechada"]) lines.push(`- Loja fechada/interditada por causa da ocorrência: ${draft.answers["loja_fechada"]}`);
   lines.push(`- Evidências anexadas: ${draft.evidence.length} arquivo(s)`);
   lines.push("");
   lines.push("DESCRIÇÃO (relatada pelo colaborador, revisada para formato profissional)");
@@ -1647,6 +1654,13 @@ function screenFormDinamico() {
 
     const content = document.getElementById("dynFormContent");
     content.innerHTML = visible.map((f) => dynFieldHtml(f, d.answers[f.id])).join("") + `
+      <div class="field-group">
+        <div class="field-label">Área da ocorrência</div>
+        <select class="field-input dyn-input" data-id="area_ocorrencia">
+          <option value="">Selecione…</option>
+          ${AREA_OCORRENCIA_OPTIONS.map((o) => `<option value="${o}" ${d.answers["area_ocorrencia"] === o ? "selected" : ""}>${o}</option>`).join("")}
+        </select>
+      </div>
       <div class="field-group">
         <div class="field-label">A loja precisou ser fechada/interditada por causa desta ocorrência?</div>
         <select class="field-input dyn-input" data-id="loja_fechada">
