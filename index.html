@@ -88,6 +88,17 @@
   .stat-tile.MEDIA .stat-num{color:var(--amber);}
   .stat-tile.BAIXA .stat-num{color:var(--green);}
 
+  .insight-grid{display:grid; grid-template-columns:repeat(2,1fr); gap:10px; margin-bottom:16px;}
+  .insight-tile{background:var(--surface-alt); border-radius:12px; padding:12px; display:flex; align-items:flex-start; gap:10px;}
+  .insight-icon{font-size:18px; line-height:1;}
+  .insight-body{display:flex; flex-direction:column; gap:3px; min-width:0;}
+  .insight-label{font-size:10.5px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.03em;}
+  .insight-value{font-family:'Space Grotesk'; font-size:14px; font-weight:700; overflow-wrap:break-word;}
+  .insight-trend-up{color:var(--red);}
+  .insight-trend-down{color:var(--green);}
+  .insight-trend-flat{color:var(--ink-soft);}
+  @media (max-width:520px){ .insight-grid{grid-template-columns:1fr;} }
+
   .dash table{width:100%; border-collapse:collapse; font-size:12.5px;}
   .dash thead th{text-align:left; font-size:10.5px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.03em; padding:6px 8px; border-bottom:1px solid var(--border);}
   .dash thead th.num, .dash td.num{text-align:right; font-variant-numeric:tabular-nums;}
@@ -2017,7 +2028,7 @@ async function loadDashboardData() {
   const pageSize = 1000;
   let all = [];
   for (let from = 0; ; from += pageSize) {
-    const { data, error } = await sb.from("occurrences").select("criticality, store:stores(id, name, state, type)").range(from, from + pageSize - 1);
+    const { data, error } = await sb.from("occurrences").select("criticality, created_at, store:stores(id, name, state, type)").range(from, from + pageSize - 1);
     if (error) { showToast("Erro ao carregar dados do painel: " + error.message); return; }
     all = all.concat(data);
     if (data.length < pageSize) break;
@@ -2107,6 +2118,55 @@ function dashAggregateByStoreType(rows) {
   return { byType };
 }
 
+const WEEKDAY_NAMES = ["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"];
+
+// Four quick reads on the filtered set: pace (per day/month), which weekday
+// and which hour see the most occurrences, and whether the last week is up
+// or down from the week before — all derived from created_at, so they
+// reflect registration timing, not the (separate) incident date/time.
+function dashComputeInsights(rows) {
+  if (rows.length === 0) return null;
+  const dates = rows.map((r) => new Date(r.created_at)).filter((d) => !isNaN(d));
+  if (dates.length === 0) return null;
+
+  const minDate = new Date(Math.min(...dates));
+  const maxDate = new Date(Math.max(...dates));
+  const daySpan = Math.max(1, Math.round((maxDate - minDate) / 86400000) + 1);
+  const monthSpan = Math.max(1, (maxDate.getFullYear() - minDate.getFullYear()) * 12 + (maxDate.getMonth() - minDate.getMonth()) + 1);
+  const avgDaily = (dates.length / daySpan).toFixed(1);
+  const avgMonthly = (dates.length / monthSpan).toFixed(1);
+
+  const byWeekday = new Array(7).fill(0);
+  const byHour = new Array(24).fill(0);
+  dates.forEach((d) => { byWeekday[d.getDay()]++; byHour[d.getHours()]++; });
+  const maxWeekday = Math.max(...byWeekday);
+  const topWeekdays = WEEKDAY_NAMES.filter((_, i) => byWeekday[i] === maxWeekday);
+  const maxHour = Math.max(...byHour);
+  const topHours = byHour.map((c, h) => (c === maxHour ? h : null)).filter((h) => h !== null);
+
+  const now = new Date();
+  const last7Start = new Date(now); last7Start.setDate(now.getDate() - 7);
+  const prev7Start = new Date(now); prev7Start.setDate(now.getDate() - 14);
+  const last7 = dates.filter((d) => d >= last7Start).length;
+  const prev7 = dates.filter((d) => d >= prev7Start && d < last7Start).length;
+  let trend;
+  if (prev7 === 0) {
+    trend = last7 > 0 ? { dir: "up", text: `Aumento (${last7} nos últimos 7 dias, nenhuma nos 7 anteriores)` } : { dir: "flat", text: "Sem ocorrências nas últimas 2 semanas" };
+  } else {
+    const pct = Math.round(((last7 - prev7) / prev7) * 100);
+    trend = pct > 0 ? { dir: "up", text: `Aumento de ${pct}% (${last7} vs ${prev7} na semana anterior)` }
+      : pct < 0 ? { dir: "down", text: `Redução de ${Math.abs(pct)}% (${last7} vs ${prev7} na semana anterior)` }
+      : { dir: "flat", text: `Estável (${last7} nas duas últimas semanas)` };
+  }
+
+  return {
+    avgDaily, avgMonthly,
+    topWeekdaysText: `${topWeekdays.join(", ")} (${maxWeekday})`,
+    topHoursText: `${topHours.map((h) => String(h).padStart(2, "0") + "h").join(", ")} (${maxHour})`,
+    trend,
+  };
+}
+
 function screenDashboard() {
   const rows = dashScopedRows();
   const agg = dashAggregateByState(rows);
@@ -2114,6 +2174,7 @@ function screenDashboard() {
   const totals = { EXTREMA: 0, ALTA: 0, MEDIA: 0, BAIXA: 0 };
   rows.forEach((r) => { const c = r.criticality && r.criticality.toUpperCase(); if (totals[c] !== undefined) totals[c]++; });
   const grandTotal = rows.length;
+  const insights = dashComputeInsights(rows);
 
   mount(`
     <div class="dash-topbar">
@@ -2195,6 +2256,38 @@ function screenDashboard() {
             <div class="stat-tile MEDIA"><div class="stat-num">${totals.MEDIA}</div><div class="stat-label">Média</div></div>
             <div class="stat-tile BAIXA"><div class="stat-num">${totals.BAIXA}</div><div class="stat-label">Baixa</div></div>
           </div>
+          ${insights ? `
+          <div class="insight-grid">
+            <div class="insight-tile">
+              <div class="insight-icon">📊</div>
+              <div class="insight-body">
+                <div class="insight-label">Média diária e mensal</div>
+                <div class="insight-value">${insights.avgDaily}/dia &nbsp;·&nbsp; ${insights.avgMonthly}/mês</div>
+              </div>
+            </div>
+            <div class="insight-tile">
+              <div class="insight-icon">📅</div>
+              <div class="insight-body">
+                <div class="insight-label">Dia da semana com maior volume</div>
+                <div class="insight-value">${insights.topWeekdaysText}</div>
+              </div>
+            </div>
+            <div class="insight-tile">
+              <div class="insight-icon">${insights.trend.dir === "up" ? "📈" : insights.trend.dir === "down" ? "📉" : "➖"}</div>
+              <div class="insight-body">
+                <div class="insight-label">Tendência (últimos 7 dias)</div>
+                <div class="insight-value insight-trend-${insights.trend.dir}">${insights.trend.text}</div>
+              </div>
+            </div>
+            <div class="insight-tile">
+              <div class="insight-icon">🕒</div>
+              <div class="insight-body">
+                <div class="insight-label">Horário com mais ocorrências</div>
+                <div class="insight-value">${insights.topHoursText}</div>
+              </div>
+            </div>
+          </div>
+          ` : `<div class="empty-note">Sem dados suficientes para os indicadores.</div>`}
           <div class="card-title">Por estado</div>
           <div class="table-scroll">
             <table>
