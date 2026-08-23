@@ -941,7 +941,7 @@ let state = {
   pendingStores: [],         // staff-only: stores self-registered but not yet approved
   pendingDeletions: [],      // staff-only: occurrence deletion requests awaiting approval
   // statusMode: "todos" (padrão, mostra tudo em turquesa) | "ALTA" | "MEDIA" | "BAIXA"
-  dashFilters: { statusMode: "todos", region: "todos", uf: "todos", storeType: "todos" },
+  dashFilters: { statusMode: "todos", region: "todos", uf: "todos", storeType: "todos", storeId: "todos" },
   chatStoreId: null,
   chatStoreName: null,
 };
@@ -1989,7 +1989,7 @@ async function loadDashboardData() {
   const pageSize = 1000;
   let all = [];
   for (let from = 0; ; from += pageSize) {
-    const { data, error } = await sb.from("occurrences").select("criticality, store:stores(state, type)").range(from, from + pageSize - 1);
+    const { data, error } = await sb.from("occurrences").select("criticality, store:stores(id, name, state, type)").range(from, from + pageSize - 1);
     if (error) { showToast("Erro ao carregar dados do painel: " + error.message); return; }
     all = all.concat(data);
     if (data.length < pageSize) break;
@@ -2005,11 +2005,13 @@ function dashScopedRows() {
   return state.dashRows.filter((r) => {
     const uf = r.store && r.store.state;
     const type = r.store && r.store.type;
+    const storeId = r.store && r.store.id;
     const crit = r.criticality && r.criticality.toUpperCase();
     if (f.statusMode !== "todos" && crit !== f.statusMode) return false;
     if (f.uf !== "todos" && uf !== f.uf) return false;
     if (f.region !== "todos" && REGION_BY_STATE[uf] !== f.region) return false;
     if (f.storeType !== "todos" && type !== f.storeType) return false;
+    if (f.storeId !== "todos" && storeId !== f.storeId) return false;
     return true;
   });
 }
@@ -2032,6 +2034,17 @@ function storeTypesForRegion(region) {
   });
   return Object.keys(STORE_TYPE_LABELS).filter((t) => present.has(t));
 }
+// Same "only what actually has occurrences in scope" rule as storeTypesForRegion.
+function storesForRegion(region) {
+  const byId = new Map();
+  state.dashRows.forEach((r) => {
+    const uf = r.store && r.store.state;
+    if (!r.store || !r.store.id) return;
+    if (region !== "todos" && REGION_BY_STATE[uf] !== region) return;
+    if (!byId.has(r.store.id)) byId.set(r.store.id, r.store.name);
+  });
+  return Array.from(byId, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+}
 
 function dashAggregateByState(rows) {
   const byState = {};
@@ -2045,10 +2058,23 @@ function dashAggregateByState(rows) {
   });
   return { byState };
 }
+function dashAggregateByStoreType(rows) {
+  const byType = {};
+  rows.forEach((r) => {
+    const type = r.store && r.store.type;
+    const crit = r.criticality ? r.criticality.toUpperCase() : null;
+    if (!type) return;
+    if (!byType[type]) byType[type] = { ALTA: 0, MEDIA: 0, BAIXA: 0, total: 0 };
+    if (crit && byType[type][crit] !== undefined) byType[type][crit]++;
+    byType[type].total++;
+  });
+  return { byType };
+}
 
 function screenDashboard() {
   const rows = dashScopedRows();
   const agg = dashAggregateByState(rows);
+  const typeAgg = dashAggregateByStoreType(rows);
   const totals = { ALTA: 0, MEDIA: 0, BAIXA: 0 };
   rows.forEach((r) => { const c = r.criticality && r.criticality.toUpperCase(); if (totals[c] !== undefined) totals[c]++; });
   const grandTotal = rows.length;
@@ -2099,6 +2125,13 @@ function screenDashboard() {
             ${storeTypesForRegion(state.dashFilters.region).map((t) => `<option value="${t}" ${state.dashFilters.storeType === t ? "selected" : ""}>${STORE_TYPE_LABELS[t]}</option>`).join("")}
           </select>
         </div>
+        <div class="filter-group">
+          <div class="filter-label">Loja</div>
+          <select id="fStore">
+            <option value="todos">Todas</option>
+            ${storesForRegion(state.dashFilters.region).map((s) => `<option value="${s.id}" ${state.dashFilters.storeId === s.id ? "selected" : ""}>${escapeHtml(s.name)}</option>`).join("")}
+          </select>
+        </div>
         <button class="filter-clear" id="btnClear">Limpar filtros</button>
       </div>
 
@@ -2132,6 +2165,17 @@ function screenDashboard() {
             ${Object.keys(agg.byState).length === 0 ? `<div class="empty-note">Nenhuma ocorrência com estado cadastrado ainda.</div>` : ``}
           </div>
         </div>
+
+        <div class="card" style="grid-column:1 / -1;">
+          <div class="card-title">Por tipo de loja</div>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Tipo de loja</th><th class="num">Alta</th><th class="num">Média</th><th class="num">Baixa</th><th class="num">Total</th></tr></thead>
+              <tbody id="storeTypeTableBody"></tbody>
+            </table>
+            ${Object.keys(typeAgg.byType).length === 0 ? `<div class="empty-note">Nenhuma ocorrência com tipo de loja cadastrado ainda.</div>` : ``}
+          </div>
+        </div>
       </div>
     </div>
   `);
@@ -2139,9 +2183,16 @@ function screenDashboard() {
   document.querySelector(".map-wrap").innerHTML = BRAZIL_MAP_SVG;
   dashRenderMapColors(agg);
   dashRenderTable(agg);
+  dashRenderStoreTypeTable(typeAgg);
   dashWireFilters();
   wireNav();
   document.getElementById("btnLogout").onclick = async () => { await sb.auth.signOut(); state.role = null; state.screen = "login"; render(); };
+}
+
+// Shared by both breakdown tables so the Alta/Média/Baixa cells always read
+// the same colors as the map legend and dots.
+function riskCell(n, level) {
+  return `<td class="num" style="color:${LEVEL_COLOR[level]}; font-weight:700;">${n}</td>`;
 }
 
 function dashRenderTable(agg) {
@@ -2151,7 +2202,7 @@ function dashRenderTable(agg) {
     const s = agg.byState[uf];
     return `<tr data-uf="${uf}" class="${state.dashFilters.uf === uf ? "selected" : ""}">
       <td>${STATE_NAMES[uf]} <span class="mono" style="color:var(--ink-faint)">(${uf})</span></td>
-      <td class="num">${s.ALTA}</td><td class="num">${s.MEDIA}</td><td class="num">${s.BAIXA}</td>
+      ${riskCell(s.ALTA, "ALTA")}${riskCell(s.MEDIA, "MEDIA")}${riskCell(s.BAIXA, "BAIXA")}
       <td class="num" style="font-weight:700">${s.total}</td>
     </tr>`;
   }).join("");
@@ -2159,6 +2210,26 @@ function dashRenderTable(agg) {
     tr.onclick = () => {
       const uf = tr.dataset.uf;
       state.dashFilters.uf = state.dashFilters.uf === uf ? "todos" : uf;
+      render();
+    };
+  });
+}
+
+function dashRenderStoreTypeTable(typeAgg) {
+  const tbody = document.getElementById("storeTypeTableBody");
+  const types = Object.keys(typeAgg.byType).sort((a, b) => typeAgg.byType[b].total - typeAgg.byType[a].total);
+  tbody.innerHTML = types.map((t) => {
+    const s = typeAgg.byType[t];
+    return `<tr data-type="${t}" class="${state.dashFilters.storeType === t ? "selected" : ""}">
+      <td>${STORE_TYPE_LABELS[t] || t}</td>
+      ${riskCell(s.ALTA, "ALTA")}${riskCell(s.MEDIA, "MEDIA")}${riskCell(s.BAIXA, "BAIXA")}
+      <td class="num" style="font-weight:700">${s.total}</td>
+    </tr>`;
+  }).join("");
+  tbody.querySelectorAll("tr").forEach((tr) => {
+    tr.onclick = () => {
+      const t = tr.dataset.type;
+      state.dashFilters.storeType = state.dashFilters.storeType === t ? "todos" : t;
       render();
     };
   });
@@ -2267,12 +2338,14 @@ function dashWireFilters() {
     state.dashFilters.region = region;
     if (!statesForRegion(region).includes(state.dashFilters.uf)) state.dashFilters.uf = "todos";
     if (!storeTypesForRegion(region).includes(state.dashFilters.storeType)) state.dashFilters.storeType = "todos";
+    if (!storesForRegion(region).some((s) => s.id === state.dashFilters.storeId)) state.dashFilters.storeId = "todos";
     render();
   };
   document.getElementById("fUf").onchange = (e) => { state.dashFilters.uf = e.target.value; render(); };
   document.getElementById("fType").onchange = (e) => { state.dashFilters.storeType = e.target.value; render(); };
+  document.getElementById("fStore").onchange = (e) => { state.dashFilters.storeId = e.target.value; render(); };
   document.getElementById("btnClear").onclick = () => {
-    state.dashFilters = { statusMode: "todos", region: "todos", uf: "todos", storeType: "todos" };
+    state.dashFilters = { statusMode: "todos", region: "todos", uf: "todos", storeType: "todos", storeId: "todos" };
     render();
   };
 }

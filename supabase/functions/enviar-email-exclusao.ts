@@ -45,20 +45,25 @@ const html = "<div style=\"font-family: sans-serif; max-width: 560px;\">" +
 (message ? "<p><strong>Mensagem do CCO:</strong><br>" + message + "</p>" : "") +
 "<hr><p style=\"color:#888; font-size:12px;\">Registro de Ocorrencia - mensagem automatica.</p></div>";
 
+const gmailUser = Deno.env.get("GMAIL_USER");
+const gmailPass = Deno.env.get("GMAIL_APP_PASSWORD");
+console.log("GMAIL_USER set:", !!gmailUser, "length:", (gmailUser || "").length);
+console.log("GMAIL_APP_PASSWORD set:", !!gmailPass, "length:", (gmailPass || "").length);
+
 const client = new SMTPClient({
 connection: {
 hostname: "smtp.gmail.com",
 port: 465,
 tls: true,
 auth: {
-username: Deno.env.get("GMAIL_USER"),
-password: Deno.env.get("GMAIL_APP_PASSWORD"),
+username: gmailUser,
+password: gmailPass,
 },
 },
 });
 
 await client.send({
-from: Deno.env.get("GMAIL_USER"),
+from: gmailUser,
 to,
 subject,
 content: "auto",
@@ -68,6 +73,7 @@ await client.close();
 
 return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 } catch (e) {
+console.error("ENVIAR_EMAIL_EXCLUSAO_FALHOU:", String(e), e && e.stack ? e.stack : "");
 return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: corsHeaders });
 }
 });
