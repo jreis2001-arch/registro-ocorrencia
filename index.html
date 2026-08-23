@@ -100,6 +100,20 @@
   .insight-trend-flat{color:var(--ink-soft);}
   @media (max-width:520px){ .insight-grid{grid-template-columns:1fr;} }
 
+  .risk-matrix-wrap{overflow-x:auto; -webkit-overflow-scrolling:touch;}
+  .rm-grid{display:grid; grid-template-columns:76px repeat(4,1fr); gap:5px; min-width:560px;}
+  .rm-corner{}
+  .rm-col-head{display:flex; align-items:flex-end; justify-content:center; padding:4px 4px 6px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; color:var(--ink-soft);}
+  .rm-row-head{display:flex; align-items:center; justify-content:flex-end; text-align:right; padding:4px 8px 4px 0; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; color:var(--ink-soft);}
+  .rm-cell{border-radius:10px; padding:7px; min-height:64px; display:flex; flex-wrap:wrap; align-content:flex-start; gap:4px;}
+  .rm-chip{background:rgba(255,255,255,.72); border-radius:6px; padding:3px 7px; font-size:10.5px; font-weight:600; color:var(--ink); line-height:1.3; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .rm-chip b{font-weight:800;}
+  .rm-chip-more{background:rgba(255,255,255,.4); font-style:italic; font-weight:600;}
+  .rm-axes{display:flex; justify-content:space-between; margin-top:6px; padding:0 4px 0 76px; font-size:10.5px; font-weight:700; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.03em;}
+  .rm-legend{display:flex; flex-wrap:wrap; align-items:center; gap:12px; margin-top:12px; font-size:11px; color:var(--ink-soft);}
+  .rm-legend-swatch{width:10px; height:10px; border-radius:3px; display:inline-block; margin-right:5px; vertical-align:middle;}
+  .rm-legend-note{flex-basis:100%; font-size:10.5px; color:var(--ink-soft); opacity:.85;}
+
   .dash table{width:100%; border-collapse:collapse; font-size:12.5px;}
   .dash thead th{text-align:left; font-size:10.5px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.03em; padding:6px 8px; border-bottom:1px solid var(--border);}
   .dash thead th.num, .dash td.num{text-align:right; font-variant-numeric:tabular-nums;}
@@ -2029,7 +2043,7 @@ async function loadDashboardData() {
   const pageSize = 1000;
   let all = [];
   for (let from = 0; ; from += pageSize) {
-    const { data, error } = await sb.from("occurrences").select("criticality, created_at, store:stores(id, name, state, type)").range(from, from + pageSize - 1);
+    const { data, error } = await sb.from("occurrences").select("criticality, created_at, tipologia, store:stores(id, name, state, type)").range(from, from + pageSize - 1);
     if (error) { showToast("Erro ao carregar dados do painel: " + error.message); return; }
     all = all.concat(data);
     if (data.length < pageSize) break;
@@ -2168,6 +2182,85 @@ function dashComputeInsights(rows) {
   };
 }
 
+const RM_SEV_LABELS = { 1: "Baixa", 2: "Média", 3: "Alta", 4: "Extrema" };
+const RM_FREQ_LABELS = { 1: "Baixa", 2: "Média", 3: "Alta" };
+
+// Classic likelihood x severity heat map. Severity = worst criticality a
+// tipologia ever reached; frequência = its share of the filtered total
+// (there's no separate probability field in the data, so occurrence share
+// is the closest honest proxy). score 1-12 buckets into 4 risk bands that
+// reuse the app's existing semantic colors (green/amber/red/purple).
+function riskCellBand(sevIdx, freqIdx) {
+  const score = sevIdx * freqIdx;
+  if (score <= 2) return { band: "Baixo", color: "var(--green)", bg: "var(--green-soft)" };
+  if (score <= 4) return { band: "Moderado", color: "var(--amber)", bg: "var(--amber-soft)" };
+  if (score <= 8) return { band: "Alto", color: "var(--red)", bg: "var(--red-soft)" };
+  return { band: "Crítico", color: "var(--purple)", bg: "var(--purple-soft)" };
+}
+
+function dashComputeRiskMatrix(rows) {
+  if (rows.length === 0) return null;
+  const byTipologia = {};
+  rows.forEach((r) => {
+    const t = r.tipologia || "Não informado";
+    if (!byTipologia[t]) byTipologia[t] = { count: 0, worst: "BAIXA" };
+    byTipologia[t].count++;
+    const c = r.criticality && r.criticality.toUpperCase();
+    if (LEVELS[c] !== undefined && LEVELS[c] > LEVELS[byTipologia[t].worst]) byTipologia[t].worst = c;
+  });
+  const total = rows.length;
+  const cells = {};
+  Object.keys(byTipologia).forEach((t) => {
+    const info = byTipologia[t];
+    const sevIdx = LEVELS[info.worst] + 1;
+    const pct = info.count / total;
+    const freqIdx = pct > 0.15 ? 3 : pct > 0.05 ? 2 : 1;
+    const key = `${sevIdx}-${freqIdx}`;
+    if (!cells[key]) cells[key] = [];
+    cells[key].push({ name: t, count: info.count });
+  });
+  Object.values(cells).forEach((arr) => arr.sort((a, b) => b.count - a.count));
+  return { cells, total, typeCount: Object.keys(byTipologia).length };
+}
+
+function renderRiskMatrixHtml(matrix) {
+  if (!matrix) return `<div class="empty-note">Sem dados suficientes para a matriz de risco.</div>`;
+  const sevOrder = [1, 2, 3, 4];
+  const freqOrder = [3, 2, 1];
+  let cellsHtml = "";
+  freqOrder.forEach((freqIdx) => {
+    cellsHtml += `<div class="rm-row-head">${RM_FREQ_LABELS[freqIdx]}</div>`;
+    sevOrder.forEach((sevIdx) => {
+      const key = `${sevIdx}-${freqIdx}`;
+      const items = matrix.cells[key] || [];
+      const band = riskCellBand(sevIdx, freqIdx);
+      const chips = items.slice(0, 4).map((it) => `<div class="rm-chip">${escapeHtml(it.name)} <b>${it.count}</b></div>`).join("");
+      const more = items.length > 4 ? `<div class="rm-chip rm-chip-more">+${items.length - 4} outro(s)</div>` : "";
+      cellsHtml += `<div class="rm-cell" style="background:${band.bg};" title="Risco ${band.band}">${chips}${more}</div>`;
+    });
+  });
+  return `
+    <div class="risk-matrix-wrap">
+      <div class="rm-grid">
+        <div class="rm-corner"></div>
+        ${sevOrder.map((s) => `<div class="rm-col-head">${RM_SEV_LABELS[s]}</div>`).join("")}
+        ${cellsHtml}
+      </div>
+    </div>
+    <div class="rm-axes">
+      <span class="rm-axis-y">↑ Frequência</span>
+      <span class="rm-axis-x">Severidade →</span>
+    </div>
+    <div class="rm-legend">
+      <span><span class="rm-legend-swatch" style="background:var(--green)"></span>Baixo</span>
+      <span><span class="rm-legend-swatch" style="background:var(--amber)"></span>Moderado</span>
+      <span><span class="rm-legend-swatch" style="background:var(--red)"></span>Alto</span>
+      <span><span class="rm-legend-swatch" style="background:var(--purple)"></span>Crítico</span>
+      <span class="rm-legend-note">Frequência = participação do tipo de ocorrência no total filtrado · Severidade = maior criticidade já registrada para o tipo</span>
+    </div>
+  `;
+}
+
 function screenDashboard() {
   const rows = dashScopedRows();
   const agg = dashAggregateByState(rows);
@@ -2176,6 +2269,7 @@ function screenDashboard() {
   rows.forEach((r) => { const c = r.criticality && r.criticality.toUpperCase(); if (totals[c] !== undefined) totals[c]++; });
   const grandTotal = rows.length;
   const insights = dashComputeInsights(rows);
+  const riskMatrix = dashComputeRiskMatrix(rows);
 
   mount(`
     <div class="dash-topbar">
@@ -2308,6 +2402,11 @@ function screenDashboard() {
             </table>
             ${Object.keys(typeAgg.byType).length === 0 ? `<div class="empty-note">Nenhuma ocorrência com tipo de loja cadastrado ainda.</div>` : ``}
           </div>
+        </div>
+
+        <div class="card" style="grid-column:1 / -1; min-width:0;">
+          <div class="card-title">Matriz de risco</div>
+          ${renderRiskMatrixHtml(riskMatrix)}
         </div>
       </div>
     </div>
