@@ -21,7 +21,7 @@
     --ink:#1B2434; --ink-soft:#5B6579; --ink-faint:#94A0B4;
     --primary:#1E3A5F; --primary-dark:#13253C; --primary-soft:#E6ECF5;
     --red:#C0362C; --red-soft:#FBE7E5; --amber:#B8960C; --amber-soft:#FCF3D9;
-    --green:#1B7A43; --green-soft:#E3F3E9;
+    --green:#1B7A43; --green-soft:#E3F3E9; --purple:#6B3FA0; --purple-soft:#F1E9F8;
     --map-0:#E9ECF3;
   }
   *{box-sizing:border-box;}
@@ -49,10 +49,12 @@
   select{padding:8px 10px; border:1.5px solid var(--border); border-radius:9px; font-size:13px; font-family:inherit; background:var(--surface); color:var(--ink); min-width:120px;}
   .status-chips{display:flex; gap:6px;}
   .status-chip{display:flex; align-items:center; gap:6px; border:1.5px solid var(--border); border-radius:999px; padding:6px 10px; font-size:12px; font-weight:600; background:var(--surface);}
+  .status-chip.on.EXTREMA{border-color:var(--purple); background:var(--purple-soft); color:var(--purple);}
   .status-chip.on.ALTA{border-color:var(--red); background:var(--red-soft); color:var(--red);}
   .status-chip.on.MEDIA{border-color:var(--amber); background:var(--amber-soft); color:var(--amber);}
   .status-chip.on.BAIXA{border-color:var(--green); background:var(--green-soft); color:var(--green);}
   .status-chip.on.TODOS{border-color:var(--primary); background:var(--primary-soft); color:var(--primary);}
+  .status-chip.on.MULTI{border-color:var(--primary); background:linear-gradient(90deg, var(--purple-soft), var(--red-soft), var(--amber-soft), var(--green-soft)); color:var(--primary);}
   .filter-clear{margin-left:auto; font-size:12.5px; color:var(--primary); background:none; border:none; font-weight:600;}
 
   .dash-grid{display:grid; grid-template-columns:1.4fr 1fr; gap:20px; align-items:start;}
@@ -81,6 +83,7 @@
   .stat-tile{background:var(--surface-alt); border-radius:12px; padding:12px; display:flex; flex-direction:column; gap:3px;}
   .stat-num{font-family:'Space Grotesk'; font-size:20px; font-weight:700;}
   .stat-label{font-size:10.5px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.03em;}
+  .stat-tile.EXTREMA .stat-num{color:var(--purple);}
   .stat-tile.ALTA .stat-num{color:var(--red);}
   .stat-tile.MEDIA .stat-num{color:var(--amber);}
   .stat-tile.BAIXA .stat-num{color:var(--green);}
@@ -181,13 +184,16 @@
   .crit-chip{display:flex; align-items:center; gap:7px; background:var(--red-soft); border-radius:999px; padding:6px 12px;}
   .crit-chip.MEDIA{background:var(--amber-soft);}
   .crit-chip.BAIXA{background:var(--green-soft);}
+  .crit-chip.EXTREMA{background:var(--purple-soft);}
   .crit-dot{width:9px; height:9px; border-radius:999px; background:var(--red);}
   .crit-chip.MEDIA .crit-dot{background:var(--amber);}
   .crit-chip.BAIXA .crit-dot{background:var(--green);}
+  .crit-chip.EXTREMA .crit-dot{background:var(--purple);}
   .crit-text{display:flex; flex-direction:column; line-height:1.1;}
   .crit-level{font-size:12px; font-weight:700; color:var(--red);}
   .crit-chip.MEDIA .crit-level{color:var(--amber);}
   .crit-chip.BAIXA .crit-level{color:var(--green);}
+  .crit-chip.EXTREMA .crit-level{color:var(--purple);}
   .crit-sub{font-size:9px; color:var(--ink-soft);}
   .progress-track{height:5px; background:var(--surface-alt); border-radius:999px; overflow:hidden;}
   .progress-fill{height:100%; background:var(--primary); border-radius:999px; transition:width .25s;}
@@ -293,9 +299,9 @@ const ICONS = {
 };
 
 /* ============================= DATA MODEL ============================= */
-const LEVELS = { BAIXA: 0, MEDIA: 1, ALTA: 2 };
-const LEVEL_LABEL = { ALTA: "Alta", MEDIA: "Média", BAIXA: "Baixa" };
-const CRIT_LEVELS = ["ALTA", "MEDIA", "BAIXA"]; // iteration order for the dashboard
+const LEVELS = { BAIXA: 0, MEDIA: 1, ALTA: 2, EXTREMA: 3 };
+const LEVEL_LABEL = { EXTREMA: "Extremo", ALTA: "Alta", MEDIA: "Média", BAIXA: "Baixa" };
+const CRIT_LEVELS = ["EXTREMA", "ALTA", "MEDIA", "BAIXA"]; // iteration order for the dashboard, worst first
 
 // Evidence upload limits — store Wi-Fi is often unreliable, and unbounded
 // uploads both risk failing mid-transfer and inflate storage cost with no
@@ -1000,7 +1006,7 @@ function computeCriticalityFromAnswers(answers) {
   const bump = (lvl) => { if (LEVELS[lvl] > LEVELS[level]) level = lvl; };
   const has = (id, val) => { const v = answers[id]; return Array.isArray(v) ? v.includes(val) : v === val; };
 
-  if (has("houve_obito", "Sim")) bump("ALTA");
+  if (has("houve_obito", "Sim") || has("loja_fechada", "Sim")) bump("EXTREMA");
   const integridade = answers["danos_a_integridade_fisica"];
   if (integridade) {
     if (String(integridade).startsWith("Ferimentos/Machucados graves")) bump("ALTA");
@@ -1233,7 +1239,7 @@ function screenHome() {
   wireOccRows();
 }
 
-function critDotColor(level) { return level === "ALTA" ? "var(--red)" : level === "MEDIA" ? "var(--amber)" : "var(--green)"; }
+function critDotColor(level) { return level === "EXTREMA" ? "var(--purple)" : level === "ALTA" ? "var(--red)" : level === "MEDIA" ? "var(--amber)" : "var(--green)"; }
 
 function occRow(o) {
   return `
@@ -1642,6 +1648,14 @@ function screenFormDinamico() {
     const content = document.getElementById("dynFormContent");
     content.innerHTML = visible.map((f) => dynFieldHtml(f, d.answers[f.id])).join("") + `
       <div class="field-group">
+        <div class="field-label">A loja precisou ser fechada/interditada por causa desta ocorrência?</div>
+        <select class="field-input dyn-input" data-id="loja_fechada">
+          <option value="">Selecione…</option>
+          <option value="Sim" ${d.answers["loja_fechada"] === "Sim" ? "selected" : ""}>Sim</option>
+          <option value="Não" ${d.answers["loja_fechada"] === "Não" ? "selected" : ""}>Não</option>
+        </select>
+      </div>
+      <div class="field-group">
         <div class="field-label">Descrição</div>
         <div class="narrative-box">
           <textarea id="descInput" placeholder="Descreva com suas palavras o que aconteceu...">${escapeHtml(d.narrativeRaw)}</textarea>
@@ -2007,7 +2021,9 @@ function dashScopedRows() {
     const type = r.store && r.store.type;
     const storeId = r.store && r.store.id;
     const crit = r.criticality && r.criticality.toUpperCase();
-    if (f.statusMode !== "todos" && crit !== f.statusMode) return false;
+    // "MULTI" (the 4-color map view) still wants every level in scope — it
+    // only changes how the map draws the dots, not which rows count.
+    if (f.statusMode !== "todos" && f.statusMode !== "MULTI" && crit !== f.statusMode) return false;
     if (f.uf !== "todos" && uf !== f.uf) return false;
     if (f.region !== "todos" && REGION_BY_STATE[uf] !== f.region) return false;
     if (f.storeType !== "todos" && type !== f.storeType) return false;
@@ -2034,13 +2050,19 @@ function storeTypesForRegion(region) {
   });
   return Object.keys(STORE_TYPE_LABELS).filter((t) => present.has(t));
 }
-// Same "only what actually has occurrences in scope" rule as storeTypesForRegion.
-function storesForRegion(region) {
+// Same "only what actually has occurrences in scope" rule as storeTypesForRegion
+// — but this one honors ALL three of the filters above it (região, estado,
+// tipo de loja), not just região, since a store list that ignores estado/tipo
+// once those are picked would list stores that can't actually match.
+function storesForFilters(region, uf, storeType) {
   const byId = new Map();
   state.dashRows.forEach((r) => {
-    const uf = r.store && r.store.state;
+    const rowUf = r.store && r.store.state;
+    const rowType = r.store && r.store.type;
     if (!r.store || !r.store.id) return;
-    if (region !== "todos" && REGION_BY_STATE[uf] !== region) return;
+    if (region !== "todos" && REGION_BY_STATE[rowUf] !== region) return;
+    if (uf !== "todos" && rowUf !== uf) return;
+    if (storeType !== "todos" && rowType !== storeType) return;
     if (!byId.has(r.store.id)) byId.set(r.store.id, r.store.name);
   });
   return Array.from(byId, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
@@ -2052,7 +2074,7 @@ function dashAggregateByState(rows) {
     const uf = r.store && r.store.state;
     const crit = r.criticality ? r.criticality.toUpperCase() : null;
     if (!uf) return;
-    if (!byState[uf]) byState[uf] = { ALTA: 0, MEDIA: 0, BAIXA: 0, total: 0 };
+    if (!byState[uf]) byState[uf] = { EXTREMA: 0, ALTA: 0, MEDIA: 0, BAIXA: 0, total: 0 };
     if (crit && byState[uf][crit] !== undefined) byState[uf][crit]++;
     byState[uf].total++;
   });
@@ -2064,7 +2086,7 @@ function dashAggregateByStoreType(rows) {
     const type = r.store && r.store.type;
     const crit = r.criticality ? r.criticality.toUpperCase() : null;
     if (!type) return;
-    if (!byType[type]) byType[type] = { ALTA: 0, MEDIA: 0, BAIXA: 0, total: 0 };
+    if (!byType[type]) byType[type] = { EXTREMA: 0, ALTA: 0, MEDIA: 0, BAIXA: 0, total: 0 };
     if (crit && byType[type][crit] !== undefined) byType[type][crit]++;
     byType[type].total++;
   });
@@ -2075,7 +2097,7 @@ function screenDashboard() {
   const rows = dashScopedRows();
   const agg = dashAggregateByState(rows);
   const typeAgg = dashAggregateByStoreType(rows);
-  const totals = { ALTA: 0, MEDIA: 0, BAIXA: 0 };
+  const totals = { EXTREMA: 0, ALTA: 0, MEDIA: 0, BAIXA: 0 };
   rows.forEach((r) => { const c = r.criticality && r.criticality.toUpperCase(); if (totals[c] !== undefined) totals[c]++; });
   const grandTotal = rows.length;
 
@@ -2102,6 +2124,7 @@ function screenDashboard() {
           <div class="status-chips">
             <button class="status-chip TODOS ${state.dashFilters.statusMode === "todos" ? "on" : ""}" data-status="todos">Triscos</button>
             ${CRIT_LEVELS.map((lvl) => `<button class="status-chip ${lvl} ${state.dashFilters.statusMode === lvl ? "on" : ""}" data-status="${lvl}">${LEVEL_LABEL[lvl]}</button>`).join("")}
+            <button class="status-chip MULTI ${state.dashFilters.statusMode === "MULTI" ? "on" : ""}" data-status="MULTI">4 riscos no mapa</button>
           </div>
         </div>
         <div class="filter-group">
@@ -2129,7 +2152,7 @@ function screenDashboard() {
           <div class="filter-label">Loja</div>
           <select id="fStore">
             <option value="todos">Todas</option>
-            ${storesForRegion(state.dashFilters.region).map((s) => `<option value="${s.id}" ${state.dashFilters.storeId === s.id ? "selected" : ""}>${escapeHtml(s.name)}</option>`).join("")}
+            ${storesForFilters(state.dashFilters.region, state.dashFilters.uf, state.dashFilters.storeType).map((s) => `<option value="${s.id}" ${state.dashFilters.storeId === s.id ? "selected" : ""}>${escapeHtml(s.name)}</option>`).join("")}
           </select>
         </div>
         <button class="filter-clear" id="btnClear">Limpar filtros</button>
@@ -2145,6 +2168,7 @@ function screenDashboard() {
             <div class="legend-swatch" style="background:var(--green); margin-left:10px;"></div><span>Baixa</span>
             <div class="legend-swatch" style="background:var(--amber); margin-left:10px;"></div><span>Média</span>
             <div class="legend-swatch" style="background:var(--red); margin-left:10px;"></div><span>Alta</span>
+            <div class="legend-swatch" style="background:var(--purple); margin-left:10px;"></div><span>Extremo</span>
           </div>
         </div>
 
@@ -2152,6 +2176,7 @@ function screenDashboard() {
           <div class="card-title">Resumo</div>
           <div class="stat-grid">
             <div class="stat-tile"><div class="stat-num">${grandTotal}</div><div class="stat-label">Total</div></div>
+            <div class="stat-tile EXTREMA"><div class="stat-num">${totals.EXTREMA}</div><div class="stat-label">Extremo</div></div>
             <div class="stat-tile ALTA"><div class="stat-num">${totals.ALTA}</div><div class="stat-label">Alta</div></div>
             <div class="stat-tile MEDIA"><div class="stat-num">${totals.MEDIA}</div><div class="stat-label">Média</div></div>
             <div class="stat-tile BAIXA"><div class="stat-num">${totals.BAIXA}</div><div class="stat-label">Baixa</div></div>
@@ -2159,7 +2184,7 @@ function screenDashboard() {
           <div class="card-title">Por estado</div>
           <div class="table-scroll">
             <table>
-              <thead><tr><th>Estado</th><th class="num">Alta</th><th class="num">Média</th><th class="num">Baixa</th><th class="num">Total</th></tr></thead>
+              <thead><tr><th>Estado</th><th class="num">Extremo</th><th class="num">Alta</th><th class="num">Média</th><th class="num">Baixa</th><th class="num">Total</th></tr></thead>
               <tbody id="stateTableBody"></tbody>
             </table>
             ${Object.keys(agg.byState).length === 0 ? `<div class="empty-note">Nenhuma ocorrência com estado cadastrado ainda.</div>` : ``}
@@ -2170,7 +2195,7 @@ function screenDashboard() {
           <div class="card-title">Por tipo de loja</div>
           <div class="table-scroll">
             <table>
-              <thead><tr><th>Tipo de loja</th><th class="num">Alta</th><th class="num">Média</th><th class="num">Baixa</th><th class="num">Total</th></tr></thead>
+              <thead><tr><th>Tipo de loja</th><th class="num">Extremo</th><th class="num">Alta</th><th class="num">Média</th><th class="num">Baixa</th><th class="num">Total</th></tr></thead>
               <tbody id="storeTypeTableBody"></tbody>
             </table>
             ${Object.keys(typeAgg.byType).length === 0 ? `<div class="empty-note">Nenhuma ocorrência com tipo de loja cadastrado ainda.</div>` : ``}
@@ -2202,7 +2227,7 @@ function dashRenderTable(agg) {
     const s = agg.byState[uf];
     return `<tr data-uf="${uf}" class="${state.dashFilters.uf === uf ? "selected" : ""}">
       <td>${STATE_NAMES[uf]} <span class="mono" style="color:var(--ink-faint)">(${uf})</span></td>
-      ${riskCell(s.ALTA, "ALTA")}${riskCell(s.MEDIA, "MEDIA")}${riskCell(s.BAIXA, "BAIXA")}
+      ${riskCell(s.EXTREMA, "EXTREMA")}${riskCell(s.ALTA, "ALTA")}${riskCell(s.MEDIA, "MEDIA")}${riskCell(s.BAIXA, "BAIXA")}
       <td class="num" style="font-weight:700">${s.total}</td>
     </tr>`;
   }).join("");
@@ -2222,7 +2247,7 @@ function dashRenderStoreTypeTable(typeAgg) {
     const s = typeAgg.byType[t];
     return `<tr data-type="${t}" class="${state.dashFilters.storeType === t ? "selected" : ""}">
       <td>${STORE_TYPE_LABELS[t] || t}</td>
-      ${riskCell(s.ALTA, "ALTA")}${riskCell(s.MEDIA, "MEDIA")}${riskCell(s.BAIXA, "BAIXA")}
+      ${riskCell(s.EXTREMA, "EXTREMA")}${riskCell(s.ALTA, "ALTA")}${riskCell(s.MEDIA, "MEDIA")}${riskCell(s.BAIXA, "BAIXA")}
       <td class="num" style="font-weight:700">${s.total}</td>
     </tr>`;
   }).join("");
@@ -2241,23 +2266,24 @@ function dashRenderStoreTypeTable(typeAgg) {
 // Worst status present in a state, among the ones currently selected in
 // the filter — same "pior caso" rule used to compute an occurrence's own
 // criticality. Null means no pin: nothing in scope for that state.
-const LEVEL_COLOR = { ALTA: "var(--red)", MEDIA: "var(--amber)", BAIXA: "var(--green)" };
+const LEVEL_COLOR = { EXTREMA: "var(--purple)", ALTA: "var(--red)", MEDIA: "var(--amber)", BAIXA: "var(--green)" };
 
-// One dot per state: total count (of whatever statuses are selected —
-// dashScopedRows already filtered the rows), colored by the worst level
-// actually present. The per-level breakdown lives in the tooltip and table.
-function dashStateMarker(agg, uf) {
+// Normally one dot per state: total count (of whatever statuses are
+// selected — dashScopedRows already filtered the rows), colored by the
+// worst level actually present, or by that level's own color when one
+// specific level is picked. The per-level breakdown lives in the tooltip
+// and table. In "MULTI" mode (the 4-color map view), returns one dot per
+// level actually present in that state instead of collapsing to one.
+function dashStateMarkers(agg, uf) {
   const s = agg.byState[uf];
-  if (!s || s.total === 0) return null;
+  if (!s || s.total === 0) return [];
+  if (state.dashFilters.statusMode === "MULTI") {
+    return CRIT_LEVELS.filter((lvl) => s[lvl] > 0).map((lvl) => ({ color: LEVEL_COLOR[lvl], count: s[lvl] }));
+  }
   // "Triscos" (todos) shows every level at once, so it gets the brand's own
   // navy rather than picking one level's color to stand for all three.
-  let color;
-  if (state.dashFilters.statusMode === "todos") {
-    color = "var(--primary)";
-  } else {
-    color = LEVEL_COLOR[state.dashFilters.statusMode];
-  }
-  return { color, count: s.total };
+  const color = state.dashFilters.statusMode === "todos" ? "var(--primary)" : LEVEL_COLOR[state.dashFilters.statusMode];
+  return [{ color, count: s.total }];
 }
 
 // A colored dot with its count written beside it.
@@ -2293,11 +2319,16 @@ function dashRenderMapColors(agg) {
     svg.appendChild(pinsLayer);
   }
   pinsLayer.innerHTML = Object.keys(STATE_NAMES).map((uf) => {
-    const marker = dashStateMarker(agg, uf);
-    if (!marker) return "";
+    const markers = dashStateMarkers(agg, uf);
+    if (markers.length === 0) return "";
     const [x, y] = STATE_CENTROIDS[uf];
     const highlighted = state.dashFilters.uf === "todos" || state.dashFilters.uf === uf;
-    return `<g class="map-pin" style="cursor:pointer; opacity:${highlighted ? 1 : 0.25};" data-uf="${uf}">${riskDotSvg(x, y, marker.color, marker.count)}</g>`;
+    // Multiple markers (MULTI mode) stack vertically, centered on the
+    // state's usual single-dot spot, instead of overlapping in place.
+    const spacing = 3.6;
+    const startY = y - ((markers.length - 1) * spacing) / 2;
+    const dots = markers.map((m, i) => riskDotSvg(x, startY + i * spacing, m.color, m.count)).join("");
+    return `<g class="map-pin" style="cursor:pointer; opacity:${highlighted ? 1 : 0.25};" data-uf="${uf}">${dots}</g>`;
   }).join("");
   pinsLayer.querySelectorAll(".map-pin").forEach((pin) => {
     const uf = pin.dataset.uf;
@@ -2310,8 +2341,9 @@ function dashRenderMapColors(agg) {
 
 function dashShowTooltip(e, uf, agg) {
   const el = document.getElementById("mapTooltip");
-  const s = agg.byState[uf] || { ALTA: 0, MEDIA: 0, BAIXA: 0, total: 0 };
+  const s = agg.byState[uf] || { EXTREMA: 0, ALTA: 0, MEDIA: 0, BAIXA: 0, total: 0 };
   el.innerHTML = `<div class="tooltip-title">${STATE_NAMES[uf]}</div>
+    <div class="tooltip-row"><span>Extremo</span><span>${s.EXTREMA}</span></div>
     <div class="tooltip-row"><span>Alta</span><span>${s.ALTA}</span></div>
     <div class="tooltip-row"><span>Média</span><span>${s.MEDIA}</span></div>
     <div class="tooltip-row"><span>Baixa</span><span>${s.BAIXA}</span></div>
@@ -2333,16 +2365,23 @@ function dashWireFilters() {
       render();
     };
   });
+  // Loja depends on all three filters above it, so any of them changing can
+  // strand the currently picked store outside the new scope — re-validate
+  // it the same way estado/tipo already do for região.
+  const revalidateStore = () => {
+    const f = state.dashFilters;
+    if (!storesForFilters(f.region, f.uf, f.storeType).some((s) => s.id === f.storeId)) f.storeId = "todos";
+  };
   document.getElementById("fRegion").onchange = (e) => {
     const region = e.target.value;
     state.dashFilters.region = region;
     if (!statesForRegion(region).includes(state.dashFilters.uf)) state.dashFilters.uf = "todos";
     if (!storeTypesForRegion(region).includes(state.dashFilters.storeType)) state.dashFilters.storeType = "todos";
-    if (!storesForRegion(region).some((s) => s.id === state.dashFilters.storeId)) state.dashFilters.storeId = "todos";
+    revalidateStore();
     render();
   };
-  document.getElementById("fUf").onchange = (e) => { state.dashFilters.uf = e.target.value; render(); };
-  document.getElementById("fType").onchange = (e) => { state.dashFilters.storeType = e.target.value; render(); };
+  document.getElementById("fUf").onchange = (e) => { state.dashFilters.uf = e.target.value; revalidateStore(); render(); };
+  document.getElementById("fType").onchange = (e) => { state.dashFilters.storeType = e.target.value; revalidateStore(); render(); };
   document.getElementById("fStore").onchange = (e) => { state.dashFilters.storeId = e.target.value; render(); };
   document.getElementById("btnClear").onclick = () => {
     state.dashFilters = { statusMode: "todos", region: "todos", uf: "todos", storeType: "todos", storeId: "todos" };
