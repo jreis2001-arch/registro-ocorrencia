@@ -471,6 +471,12 @@ async function fetchPendingDeletions() {
   return data;
 }
 
+async function fetchPendingDeactivations() {
+  const { data, error } = await sb.from("user_deactivation_requests").select("*, store:stores(name,code)").eq("status", "pendente").order("requested_at");
+  if (error) { showToast("Erro ao carregar inativações pendentes: " + error.message); return []; }
+  return data;
+}
+
 /* ============================= STATE ============================= */
 const BRAZIL_MAP_SVG = `<svg version="1.1" id="brazil-map" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" viewBox="0 0 353.845 367.766" enable-background="new 0 0 353.845 367.766"
      xml:space="preserve">
@@ -998,6 +1004,7 @@ let state = {
   needsSpecialReview: false, // set while state.screen === "aguardandoAprovacao": this signup was the 6th+ user of its store
   signupOrdinal: 1,          // set while state.screen === "aguardandoAprovacao": which user number this signup was for its store
   pendingDeletions: [],      // staff-only: occurrence deletion requests awaiting approval
+  pendingDeactivations: [],  // staff-only: user deactivation requests awaiting approval
   // statusMode: "todos" (padrão, mostra tudo em turquesa) | "ALTA" | "MEDIA" | "BAIXA"
   dashFilters: { statusMode: "todos", region: "todos", uf: "todos", storeType: "todos", storeId: "todos" },
   chatStoreId: null,
@@ -1252,11 +1259,32 @@ function screenHome() {
           </div>
           ${ICONS.chevronRight}
         </button>
+        <button class="occ-item" id="btnInativacoesPendentes" style="margin-bottom:4px;">
+          <div class="occ-text">
+            <div class="occ-proto">Inativações pendentes</div>
+            <div class="occ-status">${state.pendingDeactivations.length} solicitação(ões) aguardando aprovação</div>
+          </div>
+          ${ICONS.chevronRight}
+        </button>
+        <button class="occ-item" id="btnAdministradores" style="margin-bottom:4px;">
+          <div class="occ-text">
+            <div class="occ-proto">Administradores</div>
+            <div class="occ-status">Adicionar ou remover acesso de administrador</div>
+          </div>
+          ${ICONS.chevronRight}
+        </button>
       ` : `
         <button class="occ-item" id="btnSolicitarExclusao" style="margin-bottom:4px;">
           <div class="occ-text">
             <div class="occ-proto">Solicitar exclusão de ocorrência</div>
             <div class="occ-status">Pedido de exclusão precisa ser aprovado pelo CCO</div>
+          </div>
+          ${ICONS.chevronRight}
+        </button>
+        <button class="occ-item" id="btnSolicitarInativacao" style="margin-bottom:4px;">
+          <div class="occ-text">
+            <div class="occ-proto">Solicitar inativação de usuário</div>
+            <div class="occ-status">Pedido precisa ser aprovado por um administrador</div>
           </div>
           ${ICONS.chevronRight}
         </button>
@@ -1278,8 +1306,11 @@ function screenHome() {
     document.getElementById("btnCadastrosPendentes").onclick = () => { state.screen = "aprovacoes"; render(); };
     document.getElementById("btnOrientacoes").onclick = () => { state.screen = "orientacoes"; render(); };
     document.getElementById("btnExclusoesPendentes").onclick = () => { state.screen = "exclusoes"; render(); };
+    document.getElementById("btnInativacoesPendentes").onclick = () => { state.screen = "inativacoes"; render(); };
+    document.getElementById("btnAdministradores").onclick = () => { state.screen = "administradores"; render(); };
   } else {
     document.getElementById("btnSolicitarExclusao").onclick = () => { state.screen = "solicitarExclusao"; render(); };
+    document.getElementById("btnSolicitarInativacao").onclick = () => { state.screen = "solicitarInativacao"; render(); };
   }
   document.getElementById("btnLogout").onclick = async () => {
     await sb.auth.signOut();
@@ -2893,10 +2924,14 @@ function render() {
   if (s === "cadastro") return screenCadastro();
   if (s === "cadastroLoja") return screenCadastroLoja();
   if (s === "aguardandoAprovacao") return screenAguardandoAprovacao();
+  if (s === "contaInativada") return screenContaInativada();
   if (s === "redefinirSenha") return screenRedefinirSenha();
   if (s === "aprovacoes") return screenAprovacoes();
   if (s === "solicitarExclusao") return screenSolicitarExclusao();
   if (s === "exclusoes") return screenExclusoesPendentes();
+  if (s === "solicitarInativacao") return screenSolicitarInativacao();
+  if (s === "inativacoes") return screenInativacoesPendentes();
+  if (s === "administradores") return screenAdministradores();
   if (s === "orientacoes") return screenOrientacoes();
   if (s === "orientacao") return screenOrientacao();
   if (s === "home") return screenHome();
@@ -2932,6 +2967,7 @@ async function loadStoreAndGo() {
     await loadDashboardData();
     state.pendingStores = await fetchPendingStores();
     state.pendingDeletions = await fetchPendingDeletions();
+    state.pendingDeactivations = await fetchPendingDeactivations();
     state.screen = "home";
     render();
     return;
@@ -2961,6 +2997,14 @@ async function loadStoreAndGo() {
     state.needsSpecialReview = memberRow.needs_special_review;
     state.signupOrdinal = memberRow.signup_ordinal;
     state.screen = "aguardandoAprovacao";
+    render();
+    return;
+  }
+  if (!memberRow.active) {
+    // Approved but later deactivated by an administrator — auth_store_id()
+    // also enforces this at the RLS layer, so this isn't just a UI-level gate.
+    state.store = memberRow.store;
+    state.screen = "contaInativada";
     render();
     return;
   }
@@ -3264,6 +3308,26 @@ function screenAguardandoAprovacao() {
   document.getElementById("btnSairAguardando").onclick = async () => {
     await sb.auth.signOut();
     state.session = null;
+    state.screen = "login";
+    render();
+  };
+}
+
+function screenContaInativada() {
+  mount(`
+    <div class="content" style="flex:1; justify-content:center; gap:20px; text-align:center;">
+      <div style="display:flex; flex-direction:column; align-items:center; gap:10px;">
+        <div class="logo">${ICONS.shield}</div>
+        <div class="topbar-title" style="font-size:19px;">Conta inativada</div>
+        <div class="q-sub">Seu acesso a <strong>${escapeHtml(state.store.name)}</strong> foi desativado por um administrador. Se isso for um engano, fale com o CCO para reverter.</div>
+      </div>
+      <button class="btn-text" id="btnSairInativada">Sair</button>
+    </div>
+  `);
+  document.getElementById("btnSairInativada").onclick = async () => {
+    await sb.auth.signOut();
+    state.session = null;
+    state.store = null;
     state.screen = "login";
     render();
   };
@@ -3698,6 +3762,210 @@ function screenExclusoesPendentes() {
     });
     if (error) showToast("Aviso: não foi possível enviar o e-mail ao solicitante (" + req.requested_by + ").");
   }
+}
+
+// A loja pede pra inativar um colega (outro usuário da mesma loja) — nunca
+// apaga nada, só pede. store_peers_directory já vem escopada pela própria
+// loja de quem está logado (via auth_store_id() dentro da view).
+function screenSolicitarInativacao() {
+  mount(`
+    <div class="topbar">
+      <div class="topbar-row">
+        <button class="iconbtn" id="btnBack">${ICONS.back}</button>
+        <div class="topbar-title">Solicitar inativação de usuário</div>
+      </div>
+    </div>
+    <div class="content">
+      <div class="helper">${ICONS.info}<div class="helper-text">O pedido fica pendente até um administrador aprovar. A pessoa só é bloqueada depois da aprovação — o histórico de ocorrências dela continua no sistema normalmente.</div></div>
+      <div class="field-group">
+        <div class="field-label">Usuário a inativar <span class="req">*</span></div>
+        <select id="inatUsuario" class="field-input"><option value="">Carregando…</option></select>
+      </div>
+      <div class="field-group">
+        <div class="field-label">Motivo <span class="req">*</span></div>
+        <textarea id="inatMotivo" class="field-input" placeholder="Explique o motivo da inativação…" style="min-height:90px;"></textarea>
+      </div>
+      <button class="btn btn-primary" id="btnEnviarInativacao">Enviar solicitação</button>
+    </div>
+  `);
+  document.getElementById("btnBack").onclick = () => { state.screen = "home"; render(); };
+
+  (async () => {
+    const sel = document.getElementById("inatUsuario");
+    const { data: peers, error } = await sb.from("store_peers_directory").select("id,email").order("email");
+    if (error) { sel.innerHTML = `<option value="">Erro ao carregar usuários</option>`; return; }
+    if (!peers || peers.length === 0) {
+      sel.innerHTML = `<option value="">Nenhum outro usuário nesta loja</option>`;
+      return;
+    }
+    sel.innerHTML = `<option value="">Selecione…</option>` + peers.map((p) => `<option value="${p.id}" data-email="${escapeHtml(p.email)}">${escapeHtml(p.email)}</option>`).join("");
+  })();
+
+  document.getElementById("btnEnviarInativacao").onclick = async () => {
+    const sel = document.getElementById("inatUsuario");
+    const storeUserId = sel.value;
+    const targetEmail = sel.selectedOptions[0] ? sel.selectedOptions[0].dataset.email : "";
+    const motivo = document.getElementById("inatMotivo").value.trim();
+    if (!storeUserId || !motivo) { showToast("Preencha todos os campos."); return; }
+
+    const confirmado = confirm(
+      "Confira antes de enviar:\n\n" +
+      "Usuário a inativar: " + targetEmail + "\n" +
+      "Loja: " + state.store.name + "\n" +
+      "Motivo: " + motivo + "\n\n" +
+      "Tem certeza que quer solicitar a inativação deste usuário?"
+    );
+    if (!confirmado) return;
+
+    const btn = document.getElementById("btnEnviarInativacao");
+    btn.disabled = true;
+    btn.textContent = "Enviando…";
+
+    const { error } = await sb.from("user_deactivation_requests").insert({
+      store_user_id: storeUserId,
+      store_id: state.store.id,
+      target_email: targetEmail,
+      reason: motivo,
+      requested_by: state.session.user.email,
+    });
+    if (error) { showToast("Erro ao enviar: " + error.message); btn.disabled = false; btn.textContent = "Enviar solicitação"; return; }
+    showToast("Solicitação de inativação enviada. Aguarde a aprovação de um administrador.");
+    state.screen = "home";
+    render();
+  };
+}
+
+// Staff-only: approve (flips store_users.active = false, never deletes the
+// row) or reject a pending inativação request.
+function screenInativacoesPendentes() {
+  mount(`
+    <div class="topbar">
+      <div class="topbar-row">
+        <button class="iconbtn" id="btnBack">${ICONS.back}</button>
+        <div class="topbar-title">Inativações pendentes</div>
+      </div>
+    </div>
+    <div class="content" id="inativacoesWrap"></div>
+    ${bottomNav("home")}
+  `);
+  document.getElementById("btnBack").onclick = () => { state.screen = "home"; render(); };
+  wireNav();
+  renderList();
+
+  function renderList() {
+    const wrap = document.getElementById("inativacoesWrap");
+    const pending = state.pendingDeactivations || [];
+    wrap.innerHTML = pending.length === 0 ? `<div class="empty-note">Nenhuma solicitação pendente.</div>` :
+      pending.map((r) => `
+        <div class="card" style="margin-bottom:10px;">
+          <div style="font-weight:600; font-size:14px;">${escapeHtml(r.target_email)}</div>
+          <div style="font-size:12.5px; color:var(--ink-soft); margin-bottom:6px;">${escapeHtml(r.store ? r.store.name : "—")} · ${escapeHtml(r.store ? r.store.code : "—")}</div>
+          <div style="font-size:12.5px; color:var(--ink-soft); margin-bottom:6px;">Solicitado por: ${escapeHtml(r.requested_by || "—")}</div>
+          <div style="font-size:13px; color:var(--ink); margin-bottom:10px;"><strong>Motivo:</strong> ${escapeHtml(r.reason)}</div>
+          <div style="display:flex; gap:10px;">
+            <button class="btn btn-primary" data-approve="${r.id}" style="flex:1;">Aprovar e inativar</button>
+            <button class="btn-text" data-reject="${r.id}" style="color:var(--red);">Rejeitar</button>
+          </div>
+        </div>
+      `).join("");
+
+    wrap.querySelectorAll("[data-approve]").forEach((btn) => {
+      btn.onclick = async () => {
+        if (!confirm("Tem certeza? O usuário fica bloqueado imediatamente — os dados dele continuam no sistema.")) return;
+        btn.disabled = true;
+        const req = pending.find((r) => r.id === btn.dataset.approve);
+        const { error: deactErr } = await sb.from("store_users").update({ active: false }).eq("id", req.store_user_id);
+        if (deactErr) { showToast("Erro ao inativar o usuário: " + deactErr.message); btn.disabled = false; return; }
+        const { error } = await sb.from("user_deactivation_requests").update({ status: "aprovada", reviewed_at: new Date().toISOString() }).eq("id", req.id);
+        if (error) { showToast("Erro ao atualizar a solicitação: " + error.message); btn.disabled = false; return; }
+        showToast("Usuário inativado.");
+        state.pendingDeactivations = await fetchPendingDeactivations();
+        renderList();
+      };
+    });
+    wrap.querySelectorAll("[data-reject]").forEach((btn) => {
+      btn.onclick = async () => {
+        btn.disabled = true;
+        const req = pending.find((r) => r.id === btn.dataset.reject);
+        const { error } = await sb.from("user_deactivation_requests").update({ status: "rejeitada", reviewed_at: new Date().toISOString() }).eq("id", req.id);
+        if (error) { showToast("Erro ao rejeitar: " + error.message); btn.disabled = false; return; }
+        showToast("Solicitação rejeitada.");
+        state.pendingDeactivations = await fetchPendingDeactivations();
+        renderList();
+      };
+    });
+  }
+}
+
+// Staff-only: list/add/remove administrators. Remove button only rendered
+// for the owner (jreis2001@gmail.com), and never on the owner's own row —
+// the RLS policy enforces this too, this is just not showing a button that
+// would fail anyway.
+function screenAdministradores() {
+  mount(`
+    <div class="topbar">
+      <div class="topbar-row">
+        <button class="iconbtn" id="btnBack">${ICONS.back}</button>
+        <div class="topbar-title">Administradores</div>
+      </div>
+    </div>
+    <div class="content">
+      <div class="field-group">
+        <div class="field-label">Adicionar administrador por e-mail</div>
+        <div style="display:flex; gap:8px;">
+          <input type="email" id="novoAdminEmail" class="field-input" placeholder="email@carrefour.com" style="flex:1;">
+          <button class="btn btn-primary" id="btnAdicionarAdmin">Adicionar</button>
+        </div>
+      </div>
+      <div id="adminsWrap" class="empty-note">Carregando…</div>
+    </div>
+    ${bottomNav("home")}
+  `);
+  document.getElementById("btnBack").onclick = () => { state.screen = "home"; render(); };
+  wireNav();
+
+  const isOwner = state.session.user.email && state.session.user.email.toLowerCase() === "jreis2001@gmail.com";
+
+  async function renderList() {
+    const wrap = document.getElementById("adminsWrap");
+    const { data, error } = await sb.from("administrators_directory").select("*").order("created_at");
+    if (error) { wrap.textContent = "Erro ao carregar administradores: " + error.message; return; }
+    if (!data || data.length === 0) { wrap.textContent = "Nenhum administrador cadastrado ainda."; return; }
+    wrap.className = "";
+    wrap.innerHTML = data.map((a) => `
+      <div class="occ-item" style="margin-bottom:4px;">
+        <div class="occ-text">
+          <div class="occ-proto">${escapeHtml(a.email)}</div>
+        </div>
+        ${isOwner && a.email.toLowerCase() !== "jreis2001@gmail.com" ? `<button class="btn-text" data-remove="${a.user_id}" style="color:var(--red);">Remover</button>` : ``}
+      </div>
+    `).join("");
+    wrap.querySelectorAll("[data-remove]").forEach((btn) => {
+      btn.onclick = async () => {
+        const row = data.find((a) => a.user_id === btn.dataset.remove);
+        if (!confirm(`Tem certeza que quer remover o acesso de administrador de ${row.email}? Essa pessoa perde o acesso imediatamente.`)) return;
+        btn.disabled = true;
+        const { error: delError } = await sb.from("staff_roles").delete().eq("user_id", btn.dataset.remove).eq("role", "administrador");
+        if (delError) { showToast("Erro ao remover: " + delError.message); btn.disabled = false; return; }
+        showToast("Administrador removido.");
+        renderList();
+      };
+    });
+  }
+  renderList();
+
+  document.getElementById("btnAdicionarAdmin").onclick = async () => {
+    const email = document.getElementById("novoAdminEmail").value.trim();
+    if (!email) { showToast("Informe um e-mail."); return; }
+    const btn = document.getElementById("btnAdicionarAdmin");
+    btn.disabled = true;
+    const { error } = await sb.rpc("grant_administrator", { p_email: email });
+    if (error) { showToast("Erro: " + error.message); btn.disabled = false; return; }
+    showToast("Administrador adicionado.");
+    document.getElementById("novoAdminEmail").value = "";
+    btn.disabled = false;
+    renderList();
+  };
 }
 
 boot();
