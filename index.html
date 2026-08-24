@@ -114,6 +114,16 @@
   .rm-legend-swatch{width:10px; height:10px; border-radius:3px; display:inline-block; margin-right:5px; vertical-align:middle;}
   .rm-legend-note{flex-basis:100%; font-size:10.5px; color:var(--ink-soft); opacity:.85;}
 
+  .rm2-wrap{display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start;}
+  .rm2-matrix-col{min-width:0; flex:1 1 520px;}
+  .rm2-grid{display:grid; grid-template-columns:76px repeat(4,1fr); gap:5px; min-width:520px;}
+  .rm2-col-head{display:flex; align-items:center; justify-content:center; padding:8px 4px; border-radius:6px; background:var(--ink-soft); color:#fff; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.03em;}
+  .rm2-row-head{display:flex; align-items:center; justify-content:center; padding:8px 4px; border-radius:6px; background:var(--ink-soft); color:#fff; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; text-align:center;}
+  .rm2-cell{border-radius:10px; padding:8px; min-height:68px; display:flex; flex-wrap:wrap; align-content:flex-start; gap:6px;}
+  .rm2-ball{width:34px; height:34px; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#fff; font-size:9.5px; font-weight:800; letter-spacing:.01em; box-shadow:0 1px 3px rgba(0,0,0,.18); cursor:default; flex-shrink:0;}
+  .rm2-side{flex:1 1 320px; min-width:280px;}
+  .rm2-side-title{font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; color:var(--ink-soft); margin-bottom:8px;}
+
   .dash table{width:100%; border-collapse:collapse; font-size:12.5px;}
   .dash thead th{text-align:left; font-size:10.5px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.03em; padding:6px 8px; border-bottom:1px solid var(--border);}
   .dash thead th.num, .dash td.num{text-align:right; font-variant-numeric:tabular-nums;}
@@ -365,6 +375,13 @@ const STORE_TYPE_LABELS = {
   cd_atacadao: "CD - Atacadão", express_autonoma: "Express/Autônoma", cd: "CD",
   escritorio: "Escritório", ecommerce: "Ecommerce", property: "Property",
   banco: "Banco", residencia_executiva: "Residência Executiva",
+};
+const STORE_TYPE_SIGLA = {
+  atacadao: "ATA", express: "EXP", hiper: "HIP", drogaria: "DRO",
+  posto: "PST", super: "SUP", sams_club: "SAM", todo_dia: "TDD",
+  cd_atacadao: "CDA", express_autonoma: "EXA", cd: "CD",
+  escritorio: "ESC", ecommerce: "ECO", property: "PRO",
+  banco: "BAN", residencia_executiva: "RES",
 };
 // Centroid of each state's shape within BRAZIL_MAP_SVG's own viewBox
 // (0 0 353.845 367.766), measured directly off the rendered map via
@@ -2261,6 +2278,95 @@ function renderRiskMatrixHtml(matrix) {
   `;
 }
 
+// Same severity x frequência grid as dashComputeRiskMatrix, grouped by tipo
+// de loja instead of tipologia — feeds the second, ball-marker matrix.
+function dashComputeRiskMatrixByStoreType(rows) {
+  if (rows.length === 0) return null;
+  const byType = {};
+  rows.forEach((r) => {
+    const type = r.store && r.store.type;
+    if (!type) return;
+    if (!byType[type]) byType[type] = { count: 0, worst: "BAIXA" };
+    byType[type].count++;
+    const c = r.criticality && r.criticality.toUpperCase();
+    if (LEVELS[c] !== undefined && LEVELS[c] > LEVELS[byType[type].worst]) byType[type].worst = c;
+  });
+  const total = rows.length;
+  const cells = {};
+  Object.keys(byType).forEach((type) => {
+    const info = byType[type];
+    const sevIdx = LEVELS[info.worst] + 1;
+    const pct = info.count / total;
+    const freqIdx = pct > 0.15 ? 3 : pct > 0.05 ? 2 : 1;
+    const key = `${sevIdx}-${freqIdx}`;
+    if (!cells[key]) cells[key] = [];
+    cells[key].push({ code: STORE_TYPE_SIGLA[type] || type.slice(0, 3).toUpperCase(), name: STORE_TYPE_LABELS[type] || type, count: info.count, worst: info.worst });
+  });
+  Object.values(cells).forEach((arr) => arr.sort((a, b) => b.count - a.count));
+  return { cells, total };
+}
+
+function renderRiskMatrix2Html(matrix2, typeAgg) {
+  if (!matrix2) return `<div class="empty-note">Sem dados suficientes para a matriz de risco.</div>`;
+  const sevOrder = [1, 2, 3, 4];
+  const freqOrder = [3, 2, 1];
+  let cellsHtml = "";
+  freqOrder.forEach((freqIdx) => {
+    cellsHtml += `<div class="rm2-row-head">${RM_FREQ_LABELS[freqIdx]}</div>`;
+    sevOrder.forEach((sevIdx) => {
+      const key = `${sevIdx}-${freqIdx}`;
+      const items = matrix2.cells[key] || [];
+      const band = riskCellBand(sevIdx, freqIdx);
+      const balls = items.map((it) => `<div class="rm2-ball" style="background:${LEVEL_COLOR[it.worst]};" title="${escapeHtml(it.name)} — ${it.count} ocorrência(s)">${it.code}</div>`).join("");
+      cellsHtml += `<div class="rm2-cell" style="background:${band.bg};">${balls}</div>`;
+    });
+  });
+
+  const typeRows = Object.keys(typeAgg.byType)
+    .map((type) => ({ type, ...typeAgg.byType[type] }))
+    .sort((a, b) => b.total - a.total)
+    .map((t) => `
+      <tr>
+        <td title="${escapeHtml(STORE_TYPE_LABELS[t.type] || t.type)}"><b>${STORE_TYPE_SIGLA[t.type] || t.type.slice(0, 3).toUpperCase()}</b></td>
+        ${riskCell(t.EXTREMA, "EXTREMA")}${riskCell(t.ALTA, "ALTA")}${riskCell(t.MEDIA, "MEDIA")}${riskCell(t.BAIXA, "BAIXA")}
+        <td class="num"><b>${t.total}</b></td>
+      </tr>`).join("");
+
+  return `
+    <div class="rm2-wrap">
+      <div class="rm2-matrix-col">
+        <div class="risk-matrix-wrap">
+          <div class="rm2-grid">
+            <div class="rm-corner"></div>
+            ${sevOrder.map((s) => `<div class="rm2-col-head">${RM_SEV_LABELS[s]}</div>`).join("")}
+            ${cellsHtml}
+          </div>
+        </div>
+        <div class="rm-axes">
+          <span class="rm-axis-y">↑ Frequência</span>
+          <span class="rm-axis-x">Severidade →</span>
+        </div>
+      </div>
+      <div class="rm2-side">
+        <div class="rm2-side-title">Ocorrências por tipo de loja</div>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Tipo</th><th class="num">Extremo</th><th class="num">Alta</th><th class="num">Média</th><th class="num">Baixa</th><th class="num">Total</th></tr></thead>
+            <tbody>${typeRows}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="rm-legend">
+      <span><span class="rm-legend-swatch" style="background:var(--green)"></span>Baixa</span>
+      <span><span class="rm-legend-swatch" style="background:var(--amber)"></span>Média</span>
+      <span><span class="rm-legend-swatch" style="background:var(--red)"></span>Alta</span>
+      <span><span class="rm-legend-swatch" style="background:var(--purple)"></span>Extrema</span>
+      <span class="rm-legend-note">Cor da bola = maior criticidade já registrada para o tipo de loja · passe o mouse sobre a bola para ver o nome completo · Frequência = participação do tipo de loja no total filtrado</span>
+    </div>
+  `;
+}
+
 function screenDashboard() {
   const rows = dashScopedRows();
   const agg = dashAggregateByState(rows);
@@ -2270,6 +2376,7 @@ function screenDashboard() {
   const grandTotal = rows.length;
   const insights = dashComputeInsights(rows);
   const riskMatrix = dashComputeRiskMatrix(rows);
+  const riskMatrix2 = dashComputeRiskMatrixByStoreType(rows);
 
   mount(`
     <div class="dash-topbar">
@@ -2407,6 +2514,11 @@ function screenDashboard() {
         <div class="card" style="grid-column:1 / -1; min-width:0;">
           <div class="card-title">Matriz de risco</div>
           ${renderRiskMatrixHtml(riskMatrix)}
+        </div>
+
+        <div class="card" style="grid-column:1 / -1; min-width:0;">
+          <div class="card-title">Matriz de risco por tipo de loja</div>
+          ${renderRiskMatrix2Html(riskMatrix2, typeAgg)}
         </div>
       </div>
     </div>
