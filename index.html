@@ -2286,21 +2286,26 @@ function dashComputeRiskMatrixByStoreType(rows) {
   rows.forEach((r) => {
     const type = r.store && r.store.type;
     if (!type) return;
-    if (!byType[type]) byType[type] = { count: 0, worst: "BAIXA" };
+    if (!byType[type]) byType[type] = { count: 0, counts: { EXTREMA: 0, ALTA: 0, MEDIA: 0, BAIXA: 0 } };
     byType[type].count++;
     const c = r.criticality && r.criticality.toUpperCase();
-    if (LEVELS[c] !== undefined && LEVELS[c] > LEVELS[byType[type].worst]) byType[type].worst = c;
+    if (byType[type].counts[c] !== undefined) byType[type].counts[c]++;
   });
   const total = rows.length;
   const cells = {};
   Object.keys(byType).forEach((type) => {
     const info = byType[type];
-    const sevIdx = LEVELS[info.worst] + 1;
+    // Predominant level (the one seen most often for this store type), not
+    // the worst ever reached — a single freak incident shouldn't forever
+    // paint an entire store type purple. Ties favor the more severe level.
+    let predominant = "BAIXA", best = -1;
+    CRIT_LEVELS.forEach((lvl) => { if (info.counts[lvl] > best) { best = info.counts[lvl]; predominant = lvl; } });
+    const sevIdx = LEVELS[predominant] + 1;
     const pct = info.count / total;
     const freqIdx = pct > 0.15 ? 3 : pct > 0.05 ? 2 : 1;
     const key = `${sevIdx}-${freqIdx}`;
     if (!cells[key]) cells[key] = [];
-    cells[key].push({ code: STORE_TYPE_SIGLA[type] || type.slice(0, 3).toUpperCase(), name: STORE_TYPE_LABELS[type] || type, count: info.count, worst: info.worst });
+    cells[key].push({ code: STORE_TYPE_SIGLA[type] || type.slice(0, 3).toUpperCase(), name: STORE_TYPE_LABELS[type] || type, count: info.count, predominant });
   });
   Object.values(cells).forEach((arr) => arr.sort((a, b) => b.count - a.count));
   return { cells, total };
@@ -2317,7 +2322,7 @@ function renderRiskMatrix2Html(matrix2, typeAgg) {
       const key = `${sevIdx}-${freqIdx}`;
       const items = matrix2.cells[key] || [];
       const band = riskCellBand(sevIdx, freqIdx);
-      const balls = items.map((it) => `<div class="rm2-ball" style="background:${LEVEL_COLOR[it.worst]};" title="${escapeHtml(it.name)} — ${it.count} ocorrência(s)">${it.code}</div>`).join("");
+      const balls = items.map((it) => `<div class="rm2-ball" style="background:${LEVEL_COLOR[it.predominant]};" title="${escapeHtml(it.name)} — ${it.count} ocorrência(s) · criticidade predominante: ${LEVEL_LABEL[it.predominant]}">${it.code}</div>`).join("");
       cellsHtml += `<div class="rm2-cell" style="background:${band.bg};">${balls}</div>`;
     });
   });
@@ -2362,7 +2367,7 @@ function renderRiskMatrix2Html(matrix2, typeAgg) {
       <span><span class="rm-legend-swatch" style="background:var(--amber)"></span>Média</span>
       <span><span class="rm-legend-swatch" style="background:var(--red)"></span>Alta</span>
       <span><span class="rm-legend-swatch" style="background:var(--purple)"></span>Extrema</span>
-      <span class="rm-legend-note">Cor da bola = maior criticidade já registrada para o tipo de loja · passe o mouse sobre a bola para ver o nome completo · Frequência = participação do tipo de loja no total filtrado</span>
+      <span class="rm-legend-note">Cor da bola = criticidade predominante (mais frequente) do tipo de loja · passe o mouse sobre a bola para ver o nome completo · Frequência = participação do tipo de loja no total filtrado</span>
     </div>
   `;
 }
