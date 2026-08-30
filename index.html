@@ -4178,14 +4178,20 @@ function screenAdministradores() {
     if (error) { wrap.textContent = "Erro ao carregar administradores: " + error.message; return; }
     if (!data || data.length === 0) { wrap.textContent = "Nenhum administrador cadastrado ainda."; return; }
     wrap.className = "";
-    wrap.innerHTML = data.map((a) => `
+    wrap.innerHTML = data.map((a) => {
+      const isSelf = a.email.toLowerCase() === "jreis2001@gmail.com";
+      return `
       <div class="occ-item" style="margin-bottom:4px;">
         <div class="occ-text">
           <div class="occ-proto">${escapeHtml(a.email)}</div>
         </div>
-        ${isOwner && a.email.toLowerCase() !== "jreis2001@gmail.com" ? `<button class="btn-text" data-remove="${a.user_id}" style="color:var(--red);">Remover</button>` : ``}
+        ${isOwner && !isSelf ? `
+          <button class="btn-text" data-reset-mfa="${escapeHtml(a.email)}" style="margin-right:8px;">Resetar 2FA</button>
+          <button class="btn-text" data-remove="${a.user_id}" style="color:var(--red);">Remover</button>
+        ` : ``}
       </div>
-    `).join("");
+    `;
+    }).join("");
     wrap.querySelectorAll("[data-remove]").forEach((btn) => {
       btn.onclick = async () => {
         const row = data.find((a) => a.user_id === btn.dataset.remove);
@@ -4195,6 +4201,22 @@ function screenAdministradores() {
         if (delError) { showToast("Erro ao remover: " + delError.message); btn.disabled = false; return; }
         showToast("Administrador removido.");
         renderList();
+      };
+    });
+    // Owner-only escape hatch for a lost authenticator device — calls an
+    // Edge Function with the service role key (deleteFactor isn't
+    // reachable from the client's anon-scoped session), gated server-side
+    // to the owner with an already-confirmed aal2 session too.
+    wrap.querySelectorAll("[data-reset-mfa]").forEach((btn) => {
+      btn.onclick = async () => {
+        const email = btn.dataset.resetMfa;
+        if (!confirm(`Tem certeza que quer resetar a autenticação em duas etapas de ${email}? Na próxima vez que essa pessoa entrar, vai precisar configurar um novo app autenticador.`)) return;
+        btn.disabled = true;
+        const { data, error } = await sb.functions.invoke("resetar-mfa-admin", { body: { targetEmail: email } });
+        if (error) { showToast("Erro: " + error.message); btn.disabled = false; return; }
+        if (data && data.error) { showToast("Erro: " + data.error); btn.disabled = false; return; }
+        showToast("Autenticação em duas etapas resetada.");
+        btn.disabled = false;
       };
     });
   }
