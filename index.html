@@ -3244,7 +3244,15 @@ function screenConfigurarMfa() {
     const { data, error } = await sb.auth.mfa.enroll({ factorType: "totp" });
     if (error) { document.getElementById("mfaQrWrap").innerHTML = `<div class="q-sub" style="color:var(--red);">Erro: ${escapeHtml(error.message)}</div>`; return; }
     factorId = data.id;
-    document.getElementById("mfaQrWrap").innerHTML = data.totp.qr_code;
+    // enroll() returns qr_code as a data: URI (an <img> src), not raw SVG
+    // markup — plus the raw secret as a fallback for when scanning fails.
+    document.getElementById("mfaQrWrap").innerHTML = `
+      <div style="display:flex; flex-direction:column; align-items:center; gap:8px;">
+        <img src="${data.totp.qr_code}" alt="QR code" style="width:200px; height:200px;">
+        <div class="q-sub">Não conseguiu escanear? Digite esta chave manualmente no app:</div>
+        <div style="font-family:monospace; font-size:13px; background:var(--surface-alt); padding:8px 12px; border-radius:8px; letter-spacing:1px; word-break:break-all;">${escapeHtml(data.totp.secret)}</div>
+      </div>
+    `;
   })();
 
   document.getElementById("btnConfirmarMfaSetup").onclick = async () => {
