@@ -2998,6 +2998,8 @@ function render() {
   if (s === "aguardandoAprovacao") return screenAguardandoAprovacao();
   if (s === "contaInativada") return screenContaInativada();
   if (s === "redefinirSenha") return screenRedefinirSenha();
+  if (s === "configurarMfa") return screenConfigurarMfa();
+  if (s === "confirmarMfa") return screenConfirmarMfa();
   if (s === "aprovacoes") return screenAprovacoes();
   if (s === "solicitarExclusao") return screenSolicitarExclusao();
   if (s === "exclusoes") return screenExclusoesPendentes();
@@ -3042,6 +3044,31 @@ async function loadStoreAndGo() {
     return;
   }
   if (staffRows && staffRows.length > 0) {
+    // Administrador accounts need a confirmed second factor every login —
+    // the only staff role that does, since it's the only role that can
+    // actually promote/demote other administradores (see 0032_admin_mfa.sql).
+    if (staffRows.some((r) => r.role === "administrador")) {
+      const { data: factors, error: mfaErr } = await sb.auth.mfa.listFactors();
+      if (mfaErr) {
+        showToast("Erro ao verificar autenticação em duas etapas: " + mfaErr.message);
+        await sb.auth.signOut();
+        state.screen = "login";
+        render();
+        return;
+      }
+      const hasVerified = factors.totp.some((f) => f.status === "verified");
+      if (!hasVerified) {
+        state.screen = "configurarMfa";
+        render();
+        return;
+      }
+      const { data: aal } = await sb.auth.mfa.getAuthenticatorAssuranceLevel();
+      if (aal.currentLevel !== "aal2") {
+        state.screen = "confirmarMfa";
+        render();
+        return;
+      }
+    }
     state.role = "staff";
     state.occurrences = await fetchOccurrences();
     await loadDashboardData();
@@ -3176,6 +3203,111 @@ function screenRedefinirSenha() {
     }
     showToast("Senha atualizada com sucesso!");
     await loadStoreAndGo();
+  };
+}
+
+// First-time 2FA setup for administrador accounts — enroll() gives a QR
+// code (Supabase-generated SVG, safe to inject) and a factor id; the code
+// typed back confirms the phone is actually paired, via the same
+// challenge()+verify() pair screenConfirmarMfa() uses for every later login.
+function screenConfigurarMfa() {
+  mount(`
+    <div class="content" style="flex:1; justify-content:center; gap:20px;">
+      <div style="text-align:center; display:flex; flex-direction:column; align-items:center; gap:10px;">
+        <div class="logo">${ICONS.shield}</div>
+        <div class="topbar-title" style="font-size:19px;">Configurar autenticação em duas etapas</div>
+        <div class="q-sub">Contas de administrador precisam de um segundo fator. Escaneie o QR code com um app autenticador (Google Authenticator, Authy etc.) e digite o código gerado.</div>
+      </div>
+      <div id="mfaQrWrap" style="display:flex; justify-content:center; min-height:180px; align-items:center;"><div class="q-sub">Gerando QR code…</div></div>
+      <input type="text" id="mfaCode" inputmode="numeric" placeholder="Código de 6 dígitos" style="padding:13px 14px; border:1.5px solid var(--border); border-radius:12px; font-size:14px; text-align:center; letter-spacing:2px;">
+      <button class="btn btn-primary" id="btnConfirmarMfaSetup">Confirmar</button>
+      <div class="q-sub" id="mfaSetupError" style="color:var(--red); text-align:center;"></div>
+      <button class="btn-text" id="btnSairMfaSetup" style="align-self:center;">Sair</button>
+    </div>
+  `);
+  const errEl = document.getElementById("mfaSetupError");
+  let factorId = null;
+
+  (async () => {
+    // Reuse a leftover unverified factor from an abandoned attempt instead
+    // of piling up new ones — Supabase caps how many a user can hold.
+    const { data: existing } = await sb.auth.mfa.listFactors();
+    const pending = existing && existing.totp ? existing.totp.find((f) => f.status === "unverified") : null;
+    if (pending) {
+      factorId = pending.id;
+      const { data: ch, error: chErr } = await sb.auth.mfa.challenge({ factorId });
+      if (chErr) { document.getElementById("mfaQrWrap").innerHTML = `<div class="q-sub" style="color:var(--red);">Erro: ${escapeHtml(chErr.message)}</div>`; return; }
+      document.getElementById("mfaQrWrap").dataset.challengeId = ch.id;
+      document.getElementById("mfaQrWrap").innerHTML = `<div class="q-sub">Use o app autenticador que você já tinha começado a configurar e digite o código atual.</div>`;
+      return;
+    }
+    const { data, error } = await sb.auth.mfa.enroll({ factorType: "totp" });
+    if (error) { document.getElementById("mfaQrWrap").innerHTML = `<div class="q-sub" style="color:var(--red);">Erro: ${escapeHtml(error.message)}</div>`; return; }
+    factorId = data.id;
+    document.getElementById("mfaQrWrap").innerHTML = data.totp.qr_code;
+  })();
+
+  document.getElementById("btnConfirmarMfaSetup").onclick = async () => {
+    errEl.textContent = "";
+    const code = document.getElementById("mfaCode").value.trim();
+    if (!factorId) { errEl.textContent = "Aguarde o QR code carregar."; return; }
+    if (!code) { errEl.textContent = "Digite o código do app autenticador."; return; }
+    const btn = document.getElementById("btnConfirmarMfaSetup");
+    btn.disabled = true;
+    const existingChallengeId = document.getElementById("mfaQrWrap").dataset.challengeId;
+    const { data: ch, error: chErr } = existingChallengeId ? { data: { id: existingChallengeId }, error: null } : await sb.auth.mfa.challenge({ factorId });
+    if (chErr) { errEl.textContent = "Erro: " + chErr.message; btn.disabled = false; return; }
+    const { error: vErr } = await sb.auth.mfa.verify({ factorId, challengeId: ch.id, code });
+    if (vErr) { errEl.textContent = "Código incorreto ou expirado — tente de novo."; btn.disabled = false; return; }
+    showToast("Autenticação em duas etapas configurada.");
+    await loadStoreAndGo();
+  };
+  document.getElementById("btnSairMfaSetup").onclick = async () => {
+    await sb.auth.signOut();
+    state.session = null;
+    state.screen = "login";
+    render();
+  };
+}
+
+// Every login after setup: the session starts at aal1 even with a verified
+// factor, so this challenge()+verify() step-up is required every time —
+// that's the point of 2FA, not a bug to work around.
+function screenConfirmarMfa() {
+  mount(`
+    <div class="content" style="flex:1; justify-content:center; gap:20px;">
+      <div style="text-align:center; display:flex; flex-direction:column; align-items:center; gap:10px;">
+        <div class="logo">${ICONS.shield}</div>
+        <div class="topbar-title" style="font-size:19px;">Autenticação em duas etapas</div>
+        <div class="q-sub">Digite o código do seu app autenticador.</div>
+      </div>
+      <input type="text" id="mfaCode" inputmode="numeric" placeholder="Código de 6 dígitos" style="padding:13px 14px; border:1.5px solid var(--border); border-radius:12px; font-size:14px; text-align:center; letter-spacing:2px;">
+      <button class="btn btn-primary" id="btnConfirmarMfa">Confirmar</button>
+      <div class="q-sub" id="mfaError" style="color:var(--red); text-align:center;"></div>
+      <button class="btn-text" id="btnSairMfa" style="align-self:center;">Sair</button>
+    </div>
+  `);
+  document.getElementById("btnConfirmarMfa").onclick = async () => {
+    const errEl = document.getElementById("mfaError");
+    errEl.textContent = "";
+    const code = document.getElementById("mfaCode").value.trim();
+    if (!code) { errEl.textContent = "Digite o código do app autenticador."; return; }
+    const btn = document.getElementById("btnConfirmarMfa");
+    btn.disabled = true;
+    const { data: factors, error: fErr } = await sb.auth.mfa.listFactors();
+    const factor = fErr ? null : factors.totp.find((f) => f.status === "verified");
+    if (!factor) { errEl.textContent = "Nenhum fator configurado."; btn.disabled = false; return; }
+    const { data: ch, error: chErr } = await sb.auth.mfa.challenge({ factorId: factor.id });
+    if (chErr) { errEl.textContent = "Erro: " + chErr.message; btn.disabled = false; return; }
+    const { error: vErr } = await sb.auth.mfa.verify({ factorId: factor.id, challengeId: ch.id, code });
+    if (vErr) { errEl.textContent = "Código incorreto ou expirado — tente de novo."; btn.disabled = false; return; }
+    await loadStoreAndGo();
+  };
+  document.getElementById("btnSairMfa").onclick = async () => {
+    await sb.auth.signOut();
+    state.session = null;
+    state.screen = "login";
+    render();
   };
 }
 
