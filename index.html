@@ -429,6 +429,8 @@ function mapOccurrenceFromDb(row) {
     protocol: row.protocol,
     createdAt: row.created_at,
     store: row.store ? row.store.name : (state.store ? state.store.name : ""),
+    storeState: row.store ? row.store.state : (state.store ? state.store.state : null),
+    storeType: row.store ? row.store.type : (state.store ? state.store.type : null),
     criticality: row.criticality.toUpperCase(),
     status: STATUS_LABEL[row.status] || row.status,
     tipologia: row.tipologia,
@@ -447,7 +449,7 @@ function mapOccurrenceFromDb(row) {
 async function fetchOccurrences() {
   const { data, error } = await sb
     .from("occurrences")
-    .select("*, store:stores(name,code), occurrence_evidence(id,file_name,file_size,file_type)")
+    .select("*, store:stores(name,code,state,type), occurrence_evidence(id,file_name,file_size,file_type)")
     .order("created_at", { ascending: false });
   if (error) { showToast("Erro ao carregar ocorrências: " + error.message); return []; }
   return data.map(mapOccurrenceFromDb);
@@ -1373,29 +1375,61 @@ function wireNav() {
 function screenMinhas() {
   // Already newest-first from fetchOccurrences() — no reverse needed.
   const allList = state.occurrences;
+  const isStaff = state.role === "staff";
+
+  // Region/tipo de loja filters only make sense for staff (a store's own
+  // list is already scoped to itself) — built from what's actually present
+  // in the list, same "only show what has data" rule the CCO dashboard uses.
+  const regionsPresent = isStaff
+    ? [...new Set(allList.map((o) => REGION_BY_STATE[o.storeState]).filter(Boolean))].sort()
+    : [];
+  const typesPresent = isStaff
+    ? [...new Set(allList.map((o) => o.storeType).filter(Boolean))].sort((a, b) => (STORE_TYPE_LABELS[a] || a).localeCompare(STORE_TYPE_LABELS[b] || b))
+    : [];
+
   mount(`
     <div class="topbar">
       <div class="topbar-row"><div class="topbar-title">Minhas ocorrências</div></div>
     </div>
     <div class="content">
       <input type="text" id="occSearch" placeholder="Buscar por protocolo ou loja…" style="padding:12px 14px; border:1.5px solid var(--border); border-radius:12px; font-size:13.5px;">
+      ${isStaff ? `
+      <div style="display:flex; gap:8px;">
+        <select id="occFilterRegion" class="field-input" style="flex:1;">
+          <option value="todos">Todas as regiões</option>
+          ${regionsPresent.map((r) => `<option value="${r}">${r}</option>`).join("")}
+        </select>
+        <select id="occFilterTipo" class="field-input" style="flex:1;">
+          <option value="todos">Todos os tipos de loja</option>
+          ${typesPresent.map((t) => `<option value="${t}">${escapeHtml(STORE_TYPE_LABELS[t] || t)}</option>`).join("")}
+        </select>
+      </div>` : ``}
       <div id="occListWrap" style="display:flex; flex-direction:column; gap:10px;"></div>
     </div>
     ${bottomNav("minhas")}
   `);
   const wrap = document.getElementById("occListWrap");
-  const renderList = (query) => {
-    const q = query.trim().toLowerCase();
-    const filtered = q
-      ? allList.filter((o) => o.protocol.toLowerCase().includes(q) || (o.store || "").toLowerCase().includes(q) || (o.tipologia || "").toLowerCase().includes(q))
-      : allList;
+  const regionSel = document.getElementById("occFilterRegion");
+  const tipoSel = document.getElementById("occFilterTipo");
+  const renderList = () => {
+    const q = document.getElementById("occSearch").value.trim().toLowerCase();
+    const region = regionSel ? regionSel.value : "todos";
+    const tipo = tipoSel ? tipoSel.value : "todos";
+    const filtered = allList.filter((o) => {
+      if (q && !(o.protocol.toLowerCase().includes(q) || (o.store || "").toLowerCase().includes(q) || (o.tipologia || "").toLowerCase().includes(q))) return false;
+      if (region !== "todos" && REGION_BY_STATE[o.storeState] !== region) return false;
+      if (tipo !== "todos" && o.storeType !== tipo) return false;
+      return true;
+    });
     wrap.innerHTML = filtered.length
       ? filtered.map((o) => occRow(o)).join("")
       : `<div class="empty-note">${allList.length === 0 ? "Nenhuma ocorrência registrada ainda." : "Nenhuma ocorrência encontrada."}</div>`;
     wireOccRows();
   };
-  renderList("");
-  document.getElementById("occSearch").addEventListener("input", (e) => renderList(e.target.value));
+  renderList();
+  document.getElementById("occSearch").addEventListener("input", renderList);
+  if (regionSel) regionSel.addEventListener("change", renderList);
+  if (tipoSel) tipoSel.addEventListener("change", renderList);
   wireNav();
 }
 
