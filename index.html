@@ -3244,11 +3244,15 @@ function screenConfigurarMfa() {
     const { data, error } = await sb.auth.mfa.enroll({ factorType: "totp", friendlyName: `totp-${Date.now()}` });
     if (error) { document.getElementById("mfaQrWrap").innerHTML = `<div class="q-sub" style="color:var(--red);">Erro: ${escapeHtml(error.message)}</div>`; return; }
     factorId = data.id;
-    // enroll()'s qr_code shape isn't consistent to rely on blindly — handle
-    // both a data: URI (needs <img src>) and raw SVG markup (needs to go
-    // straight into innerHTML) rather than guessing wrong a third time.
+    // enroll()'s qr_code isn't a clean opaque value to drop into an <img
+    // src> attribute — it can be (or embed) raw <svg ...> markup, complete
+    // with its own "quoted" attributes, which breaks out of any attribute
+    // it's placed inside. Any time it CONTAINS svg markup, pull that
+    // markup out and inject it directly instead — only a truly opaque
+    // value (real base64, no "<svg" substring anywhere) is safe as a src.
     const qr = data.totp.qr_code || "";
-    const qrHtml = qr.trim().startsWith("<svg") ? qr : `<img src="${qr}" alt="QR code" style="width:200px; height:200px;">`;
+    const svgStart = qr.indexOf("<svg");
+    const qrHtml = svgStart >= 0 ? qr.slice(svgStart) : `<img src="${qr}" alt="QR code" style="width:200px; height:200px;">`;
     document.getElementById("mfaQrWrap").innerHTML = `
       <div style="display:flex; flex-direction:column; align-items:center; gap:8px;">
         ${qrHtml}
