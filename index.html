@@ -3229,26 +3229,26 @@ function screenConfigurarMfa() {
   let factorId = null;
 
   (async () => {
-    // Reuse a leftover unverified factor from an abandoned attempt instead
-    // of piling up new ones — Supabase caps how many a user can hold.
+    // A leftover unverified factor from an earlier attempt can't show its
+    // QR code again (enroll() only returns it once, at creation) — drop it
+    // and enroll fresh every time this screen loads, so there's always a
+    // real, currently-displayable QR code instead of a dead end.
     const { data: existing } = await sb.auth.mfa.listFactors();
-    const pending = existing && existing.totp ? existing.totp.find((f) => f.status === "unverified") : null;
-    if (pending) {
-      factorId = pending.id;
-      const { data: ch, error: chErr } = await sb.auth.mfa.challenge({ factorId });
-      if (chErr) { document.getElementById("mfaQrWrap").innerHTML = `<div class="q-sub" style="color:var(--red);">Erro: ${escapeHtml(chErr.message)}</div>`; return; }
-      document.getElementById("mfaQrWrap").dataset.challengeId = ch.id;
-      document.getElementById("mfaQrWrap").innerHTML = `<div class="q-sub">Use o app autenticador que você já tinha começado a configurar e digite o código atual.</div>`;
-      return;
+    const pending = existing && existing.totp ? existing.totp.filter((f) => f.status === "unverified") : [];
+    for (const f of pending) {
+      await sb.auth.mfa.unenroll({ factorId: f.id });
     }
     const { data, error } = await sb.auth.mfa.enroll({ factorType: "totp" });
     if (error) { document.getElementById("mfaQrWrap").innerHTML = `<div class="q-sub" style="color:var(--red);">Erro: ${escapeHtml(error.message)}</div>`; return; }
     factorId = data.id;
-    // enroll() returns qr_code as a data: URI (an <img> src), not raw SVG
-    // markup — plus the raw secret as a fallback for when scanning fails.
+    // enroll()'s qr_code shape isn't consistent to rely on blindly — handle
+    // both a data: URI (needs <img src>) and raw SVG markup (needs to go
+    // straight into innerHTML) rather than guessing wrong a third time.
+    const qr = data.totp.qr_code || "";
+    const qrHtml = qr.trim().startsWith("<svg") ? qr : `<img src="${qr}" alt="QR code" style="width:200px; height:200px;">`;
     document.getElementById("mfaQrWrap").innerHTML = `
       <div style="display:flex; flex-direction:column; align-items:center; gap:8px;">
-        <img src="${data.totp.qr_code}" alt="QR code" style="width:200px; height:200px;">
+        ${qrHtml}
         <div class="q-sub">Não conseguiu escanear? Digite esta chave manualmente no app:</div>
         <div style="font-family:monospace; font-size:13px; background:var(--surface-alt); padding:8px 12px; border-radius:8px; letter-spacing:1px; word-break:break-all;">${escapeHtml(data.totp.secret)}</div>
       </div>
@@ -3262,8 +3262,7 @@ function screenConfigurarMfa() {
     if (!code) { errEl.textContent = "Digite o código do app autenticador."; return; }
     const btn = document.getElementById("btnConfirmarMfaSetup");
     btn.disabled = true;
-    const existingChallengeId = document.getElementById("mfaQrWrap").dataset.challengeId;
-    const { data: ch, error: chErr } = existingChallengeId ? { data: { id: existingChallengeId }, error: null } : await sb.auth.mfa.challenge({ factorId });
+    const { data: ch, error: chErr } = await sb.auth.mfa.challenge({ factorId });
     if (chErr) { errEl.textContent = "Erro: " + chErr.message; btn.disabled = false; return; }
     const { error: vErr } = await sb.auth.mfa.verify({ factorId, challengeId: ch.id, code });
     if (vErr) { errEl.textContent = "Código incorreto ou expirado — tente de novo."; btn.disabled = false; return; }
