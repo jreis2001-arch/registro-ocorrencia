@@ -3238,7 +3238,10 @@ function screenConfigurarMfa() {
     for (const f of pending) {
       await sb.auth.mfa.unenroll({ factorId: f.id });
     }
-    const { data, error } = await sb.auth.mfa.enroll({ factorType: "totp" });
+    // A blank/repeated friendly name collides with a just-deleted factor
+    // whose removal hasn't fully propagated yet — a name unique to this
+    // very attempt sidesteps that race instead of racing it.
+    const { data, error } = await sb.auth.mfa.enroll({ factorType: "totp", friendlyName: `totp-${Date.now()}` });
     if (error) { document.getElementById("mfaQrWrap").innerHTML = `<div class="q-sub" style="color:var(--red);">Erro: ${escapeHtml(error.message)}</div>`; return; }
     factorId = data.id;
     // enroll()'s qr_code shape isn't consistent to rely on blindly — handle
