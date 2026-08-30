@@ -13,7 +13,7 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" href="icon-192.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Work+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap">
-<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2.112.4"></script>
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 <style>
   :root{
@@ -1614,7 +1614,8 @@ function screenTipoOcorrencia() {
         d.answers = {};
         // If this tipologia has guidance steps, show them first — otherwise
         // skip straight to dataFato, exactly as before this feature existed.
-        const { data: steps } = await sb.from("occurrence_guidance").select("*").eq("tipologia", d.tipologia).order("step_order");
+        const { data: steps, error: stepsErr } = await sb.from("occurrence_guidance").select("*").eq("tipologia", d.tipologia).order("step_order");
+        if (stepsErr) showToast("Erro ao carregar orientações: " + stepsErr.message);
         if (steps && steps.length > 0) {
           d.guidanceSteps = steps;
           d.guidanceChecked = {};
@@ -1700,7 +1701,8 @@ function dynFieldHtml(f, value) {
     </div>`;
   }
   const inputType = f.type === "number" ? "number" : f.type === "date" ? "date" : f.type === "time" ? "time" : "text";
-  return `<div class="field-group">${label}<input type="${inputType}" class="field-input dyn-input" data-id="${f.id}" value="${escapeHtml(value != null ? value : "")}"></div>`;
+  const extraAttrs = f.type === "number" ? ` min="0" step="any"` : "";
+  return `<div class="field-group">${label}<input type="${inputType}"${extraAttrs} class="field-input dyn-input" data-id="${f.id}" value="${escapeHtml(value != null ? value : "")}"></div>`;
 }
 
 function screenFormDinamico() {
@@ -2038,9 +2040,10 @@ function screenRevisao() {
         const path = `${inserted.id}/${Date.now()}_${f.name}`;
         const { error: upErr } = await sb.storage.from("evidencias").upload(path, f.file);
         if (upErr) { showToast("Falha ao enviar o arquivo " + f.name + " — o relato foi enviado mesmo assim."); continue; }
-        await sb.from("occurrence_evidence").insert({
+        const { error: evErr } = await sb.from("occurrence_evidence").insert({
           occurrence_id: inserted.id, file_path: path, file_name: f.name, file_type: f.type, file_size: f.size,
         });
+        if (evErr) showToast("Falha ao salvar o registro do arquivo " + f.name + " — o relato foi enviado mesmo assim.");
       }
 
       state.occurrences = await fetchOccurrences();
@@ -2074,7 +2077,7 @@ function screenConfirmacao() {
         <div class="crit-chip ${o.criticality}" style="width:fit-content;"><div class="crit-dot"></div><div class="crit-text"><div class="crit-level">Criticidade ${LEVEL_LABEL[o.criticality]}</div></div></div>
         <div class="info-grid">
           <div class="info-item"><div class="info-label">Registrado em</div><div class="info-value">${fmtDate(o.createdAt)}</div></div>
-          <div class="info-item"><div class="info-label">Loja</div><div class="info-value">${o.store}</div></div>
+          <div class="info-item"><div class="info-label">Loja</div><div class="info-value">${escapeHtml(o.store)}</div></div>
           <div class="info-item"><div class="info-label">Evidências</div><div class="info-value">${o.evidence.length} arquivo(s)</div></div>
           <div class="info-item"><div class="info-label">Status</div><div class="info-value">${o.status}</div></div>
         </div>
@@ -2895,6 +2898,10 @@ async function screenChat() {
   };
 
   const { data, error } = await sb.from("messages").select("*").eq("store_id", storeId).order("created_at", { ascending: true });
+  // The user may have already navigated away (or into a different store's
+  // chat) while this was in flight — render() already unsubscribed/remounted
+  // for that case, so bail out instead of touching a screen that's no longer live.
+  if (state.screen !== "chat" || state.chatStoreId !== storeId) return;
   const wrap = document.getElementById("chatWrap");
   if (error) { wrap.innerHTML = `<div class="empty-note">Erro ao carregar: ${escapeHtml(error.message)}</div>`; return; }
   chatMessages = data || [];
@@ -2905,6 +2912,7 @@ async function screenChat() {
   let canSend = state.role === "staff";
   if (state.role === "store") {
     const { count } = await sb.from("occurrences").select("id", { count: "exact", head: true }).eq("store_id", storeId);
+    if (state.screen !== "chat" || state.chatStoreId !== storeId) return;
     canSend = (count || 0) > 0;
   }
   renderChatInput(canSend);
@@ -2960,7 +2968,14 @@ function screenBoot() {
 // Which one a given login resolves to is decided here, right after auth —
 // nothing in the UI lets someone choose, it's purely what the account is.
 async function loadStoreAndGo() {
-  const { data: staffRows } = await sb.from("staff_roles").select("role");
+  const { data: staffRows, error: staffErr } = await sb.from("staff_roles").select("role");
+  if (staffErr) {
+    showToast("Erro ao verificar seu acesso: " + staffErr.message);
+    await sb.auth.signOut();
+    state.screen = "login";
+    render();
+    return;
+  }
   if (staffRows && staffRows.length > 0) {
     state.role = "staff";
     state.occurrences = await fetchOccurrences();
@@ -3879,6 +3894,7 @@ function screenInativacoesPendentes() {
         const { error } = await sb.from("user_deactivation_requests").update({ status: "aprovada", reviewed_at: new Date().toISOString() }).eq("id", req.id);
         if (error) { showToast("Erro ao atualizar a solicitação: " + error.message); btn.disabled = false; return; }
         showToast("Usuário inativado.");
+        await notifyRequester(req, "aprovada");
         state.pendingDeactivations = await fetchPendingDeactivations();
         renderList();
       };
@@ -3890,10 +3906,22 @@ function screenInativacoesPendentes() {
         const { error } = await sb.from("user_deactivation_requests").update({ status: "rejeitada", reviewed_at: new Date().toISOString() }).eq("id", req.id);
         if (error) { showToast("Erro ao rejeitar: " + error.message); btn.disabled = false; return; }
         showToast("Solicitação rejeitada.");
+        await notifyRequester(req, "rejeitada");
         state.pendingDeactivations = await fetchPendingDeactivations();
         renderList();
       };
     });
+  }
+
+  // Best-effort: the approval/rejection itself already succeeded by the
+  // time this runs, so an email hiccup (bad address, SMTP blip) shouldn't
+  // undo it — just tell the admin the notification didn't go out.
+  async function notifyRequester(req, status) {
+    if (!req.requested_by) return;
+    const { error } = await sb.functions.invoke("enviar-email-inativacao", {
+      body: { to: req.requested_by, targetEmail: req.target_email, status, reason: req.reason },
+    });
+    if (error) showToast("Aviso: não foi possível enviar o e-mail ao solicitante (" + req.requested_by + ").");
   }
 }
 
