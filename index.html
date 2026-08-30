@@ -2454,6 +2454,79 @@ function renderRiskMatrix2Html(matrix2, typeAgg) {
   `;
 }
 
+// Statistical projection, not machine learning — extrapolates from the
+// filtered set's historical rate (long-run daily average blended with the
+// last 7 days, so a real recent shift moves the near-term numbers without
+// one noisy week dominating the yearly projection) plus which tipologia,
+// weekday and hour have shown up most often. Deliberately labeled as an
+// estimate everywhere it's shown — it's a trend read, not a guarantee.
+function dashComputePrediction(rows) {
+  if (rows.length === 0) return null;
+  const dates = rows.map((r) => new Date(r.created_at)).filter((d) => !isNaN(d));
+  if (dates.length === 0) return null;
+
+  const minDate = new Date(Math.min(...dates));
+  const maxDate = new Date(Math.max(...dates));
+  const daySpan = Math.max(1, Math.round((maxDate - minDate) / 86400000) + 1);
+  const dailyRate = dates.length / daySpan;
+
+  const now = new Date();
+  const last7Start = new Date(now); last7Start.setDate(now.getDate() - 7);
+  const last7 = dates.filter((d) => d >= last7Start).length;
+  const recentDailyRate = last7 / 7;
+  const blendedDailyRate = (dailyRate + recentDailyRate) / 2;
+
+  const projections = {
+    dia: blendedDailyRate,
+    semana: blendedDailyRate * 7,
+    mes: blendedDailyRate * 30,
+    ano: dailyRate * 365,
+  };
+
+  const byTipologia = {};
+  rows.forEach((r) => {
+    const t = r.tipologia || "Não informado";
+    byTipologia[t] = (byTipologia[t] || 0) + 1;
+  });
+  const topTipologias = Object.entries(byTipologia)
+    .map(([name, count]) => ({ name, count, share: count / rows.length }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5);
+
+  return { projections, topTipologias, totalSample: rows.length, lowSample: rows.length < 20 };
+}
+
+function renderPredictionHtml(pred, insights) {
+  if (!pred) return `<div class="empty-note">Sem dados suficientes para prever ocorrências.</div>`;
+  const fmt = (n) => (n < 1 ? n.toFixed(2) : n < 10 ? n.toFixed(1) : Math.round(n).toString());
+  return `
+    ${pred.lowSample ? `<div class="speech-warn" style="margin-bottom:12px;">⚠ Poucos dados no filtro atual (${pred.totalSample} ocorrência${pred.totalSample === 1 ? "" : "s"}) — a estimativa abaixo é pouco confiável.</div>` : ``}
+    <div class="insight-grid">
+      <div class="insight-tile"><div class="insight-icon">📅</div><div class="insight-body"><div class="insight-label">Próximo dia</div><div class="insight-value">~${fmt(pred.projections.dia)} ocorrência(s)</div></div></div>
+      <div class="insight-tile"><div class="insight-icon">📅</div><div class="insight-body"><div class="insight-label">Próxima semana</div><div class="insight-value">~${fmt(pred.projections.semana)} ocorrência(s)</div></div></div>
+      <div class="insight-tile"><div class="insight-icon">📅</div><div class="insight-body"><div class="insight-label">Próximo mês</div><div class="insight-value">~${fmt(pred.projections.mes)} ocorrência(s)</div></div></div>
+      <div class="insight-tile"><div class="insight-icon">📅</div><div class="insight-body"><div class="insight-label">Próximo ano</div><div class="insight-value">~${fmt(pred.projections.ano)} ocorrência(s)</div></div></div>
+    </div>
+    <div style="display:grid; grid-template-columns:1.3fr 1fr; gap:16px; margin-top:10px;">
+      <div>
+        <div class="card-title" style="font-size:13px;">Tipos com mais chance de se repetir</div>
+        ${pred.topTipologias.length === 0 ? `<div class="empty-note">Sem tipologia registrada no filtro atual.</div>` : pred.topTipologias.map((t, i) => `
+          <div style="display:flex; align-items:center; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--border);">
+            <div style="font-size:13px;">${i + 1}. ${escapeHtml(t.name)}</div>
+            <div style="font-size:12.5px; color:var(--ink-soft);">${t.count} · ${(t.share * 100).toFixed(0)}%</div>
+          </div>
+        `).join("")}
+      </div>
+      <div>
+        <div class="card-title" style="font-size:13px;">Quando é mais provável</div>
+        <div class="insight-tile" style="margin-bottom:8px;"><div class="insight-icon">📆</div><div class="insight-body"><div class="insight-label">Dia da semana</div><div class="insight-value">${insights ? insights.topWeekdaysText : "—"}</div></div></div>
+        <div class="insight-tile"><div class="insight-icon">🕒</div><div class="insight-body"><div class="insight-label">Horário</div><div class="insight-value">${insights ? insights.topHoursText : "—"}</div></div></div>
+      </div>
+    </div>
+    <div style="font-size:11px; color:var(--ink-soft); margin-top:14px;">Estimativa estatística baseada no histórico filtrado (média diária combinada com o ritmo dos últimos 7 dias) — não é garantia, é uma tendência.</div>
+  `;
+}
+
 function screenDashboard() {
   const rows = dashScopedRows();
   const agg = dashAggregateByState(rows);
@@ -2464,6 +2537,7 @@ function screenDashboard() {
   const insights = dashComputeInsights(rows);
   const riskMatrix = dashComputeRiskMatrix(rows);
   const riskMatrix2 = dashComputeRiskMatrixByStoreType(rows);
+  const prediction = dashComputePrediction(rows);
 
   mount(`
     <div class="dash-topbar">
@@ -2612,6 +2686,11 @@ function screenDashboard() {
         <div class="card" style="grid-column:1 / -1; min-width:0;">
           <div class="card-title">Matriz de risco por tipo de loja</div>
           ${renderRiskMatrix2Html(riskMatrix2, typeAgg)}
+        </div>
+
+        <div class="card" style="grid-column:1 / -1; min-width:0;">
+          <div class="card-title">Previsão de ocorrências</div>
+          ${renderPredictionHtml(prediction, insights)}
         </div>
       </div>
     </div>
