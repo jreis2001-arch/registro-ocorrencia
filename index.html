@@ -3577,7 +3577,7 @@ function screenCadastroLoja() {
     // Any active store can take a signup now (up to 5 users; the 6th+ just
     // gets flagged for review) — store_directory exposes only the columns
     // this search needs, not the full stores row.
-    const { data: stores, error } = await sb.from("store_directory").select("id,name,code,type").order("code");
+    const { data: stores, error } = await sb.rpc("store_directory").order("code");
     const wrap = document.getElementById("storeListWrap");
     if (error) { wrap.textContent = "Erro ao carregar lojas: " + error.message; return; }
     if (!stores || stores.length === 0) { wrap.textContent = "Nenhuma loja cadastrada. Fale com o CCO."; return; }
