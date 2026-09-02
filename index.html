@@ -4118,7 +4118,7 @@ function screenSolicitarInativacao() {
 
   (async () => {
     const sel = document.getElementById("inatUsuario");
-    const { data: peers, error } = await sb.from("store_peers_directory").select("id,email").order("email");
+    const { data: peers, error } = await sb.rpc("store_peers_directory").order("email");
     if (error) { sel.innerHTML = `<option value="">Erro ao carregar usuários</option>`; return; }
     if (!peers || peers.length === 0) {
       sel.innerHTML = `<option value="">Nenhum outro usuário nesta loja</option>`;
@@ -4267,7 +4267,7 @@ function screenAdministradores() {
 
   async function renderList() {
     const wrap = document.getElementById("adminsWrap");
-    const { data, error } = await sb.from("administrators_directory").select("*").order("created_at");
+    const { data, error } = await sb.rpc("administrators_directory").order("created_at");
     if (error) { wrap.textContent = "Erro ao carregar administradores: " + error.message; return; }
     if (!data || data.length === 0) { wrap.textContent = "Nenhum administrador cadastrado ainda."; return; }
     wrap.className = "";
@@ -4371,7 +4371,7 @@ function screenAcessosRegionais() {
 
   async function renderList() {
     const wrap = document.getElementById("viewersWrap");
-    const { data, error } = await sb.from("viewer_roles_directory").select("*").order("created_at");
+    const { data, error } = await sb.rpc("viewer_roles_directory").order("created_at");
     if (error) { wrap.textContent = "Erro ao carregar acessos: " + error.message; return; }
     if (!data || data.length === 0) { wrap.textContent = "Nenhum acesso regional concedido ainda."; return; }
     wrap.className = "";
